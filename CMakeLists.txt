@@ -5,17 +5,6 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
-if(NOT DEFINED ENV{VCPKG_ROOT})
-    message(FATAL_ERROR "Please set the VCPKG_ROOT environment variable to point to your vcpkg installation. Use command: 'set VCPKG_ROOT=C:\\vcpkg'")
-endif()
-
-# Set VCPKG_ROOT and the toolchain file
-set(VCPKG_ROOT $ENV{VCPKG_ROOT})
-set(CMAKE_TOOLCHAIN_FILE "${VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake" CACHE STRING "")
-
-# Specify the vcpkg target triplet
-set(VCPKG_TARGET_TRIPLET "x64-windows")
-
 # Use only Debug, Release, and Dist configurations
 set(CMAKE_CONFIGURATION_TYPES "Debug;Release;Dist" CACHE STRING "" FORCE)
 
