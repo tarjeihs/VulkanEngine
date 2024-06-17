@@ -34,9 +34,9 @@ protected:
 
     SWindowUserData UserData;
     
-    void* WindowHandle;
-
     CRendererContext* RendererContext;
+
+    void* WindowHandle = nullptr;
 
 public:
     CWindow(const SWindowSpecification& InSpecification)

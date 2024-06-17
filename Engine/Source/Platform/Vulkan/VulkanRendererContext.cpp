@@ -98,19 +98,13 @@ bool RkVulkanValidationLayer::IsSupported()
 
 void RkVulkanValidationLayer::Enable(VkInstanceCreateInfo& CreateInfo)
 {
-    assert(IsSupported(), "This Validation Layer is not supported.");
+    RK_ENGINE_ASSERT(IsSupported(), "This Validation Layer is not supported.");
 
-    const char** newLayerNames = static_cast<const char**>(std::malloc((CreateInfo.enabledLayerCount + 1) * sizeof(const char*)));
-
-    if (CreateInfo.ppEnabledLayerNames)
-    {
-        std::memcpy(newLayerNames, CreateInfo.ppEnabledLayerNames, CreateInfo.enabledLayerCount * sizeof(const char*));
-    }
-
-    newLayerNames[CreateInfo.enabledLayerCount] = ValidationLayerName;
+    static std::vector<const char*> Result;
+    Result.emplace_back(ValidationLayerName);
 
     CreateInfo.enabledLayerCount++;
-    CreateInfo.ppEnabledLayerNames = newLayerNames;
+    CreateInfo.ppEnabledLayerNames = Result.data();
 }
 
 /* CVulkanRendererContext */
