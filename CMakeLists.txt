@@ -16,10 +16,13 @@ set(OUTPUT_DIR ${CMAKE_BINARY_DIR}/Binaries)
 set(INTERMEDIATE_DIR ${CMAKE_BINARY_DIR}/Intermediate)
 
 # Collect all source files for the Engine project
-file(GLOB_RECURSE ENGINE_SOURCES
+file(GLOB_RECURSE ENGINE_FILES
     Engine/Source/*.cpp
     Engine/Source/*.h
 )
+
+# Define source groups for Engine
+source_group(TREE ${CMAKE_CURRENT_SOURCE_DIR}/Engine/Source PREFIX "Files" FILES ${ENGINE_FILES})
 
 # Find Vulkan, glfw, and glm
 find_package(Vulkan REQUIRED)
@@ -27,7 +30,7 @@ find_package(glfw3 CONFIG REQUIRED)
 find_package(glm CONFIG REQUIRED)
 
 # Engine project
-add_library(Engine STATIC ${ENGINE_SOURCES})
+add_library(Engine STATIC ${ENGINE_FILES})
 
 target_include_directories(Engine PRIVATE
     Engine/Source
@@ -62,13 +65,16 @@ if(WIN32)
 endif()
 
 # Collect all source files for the Editor project
-file(GLOB_RECURSE EDITOR_SOURCES
+file(GLOB_RECURSE EDITOR_FILES
     Editor/Source/*.cpp
     Editor/Source/*.h
 )
 
+# Define source groups for Editor
+source_group(TREE ${CMAKE_CURRENT_SOURCE_DIR}/Editor/Source PREFIX "Files" FILES ${EDITOR_FILES})
+
 # Editor project
-add_executable(Editor ${EDITOR_SOURCES})
+add_executable(Editor ${EDITOR_FILES})
 
 target_include_directories(Editor PRIVATE
     Editor/Source
@@ -78,7 +84,8 @@ target_include_directories(Editor PRIVATE
     ${Vulkan_INCLUDE_DIR}
 )
 
-target_link_libraries(Editor PRIVATE Engine
+target_link_libraries(Editor PRIVATE 
+    Engine
     Vulkan::Vulkan
 )
 
@@ -105,7 +112,7 @@ set(CMAKE_CXX_FLAGS_RELEASE "/MD /O2 /Ob2 /DNDEBUG")
 set(CMAKE_CXX_FLAGS_DIST "/MD /O2 /Ob2 /DNDEBUG")
 
 # Configuration-specific linker flags
-set(CMAKE_EXE_LINKER_FLAGS_DEBUG "")
+set(CMAKE_EXE_LINKER_FLAGS_DEBUG "/DEBUG")
 set(CMAKE_EXE_LINKER_FLAGS_RELEASE "")
 set(CMAKE_EXE_LINKER_FLAGS_DIST "")
 
