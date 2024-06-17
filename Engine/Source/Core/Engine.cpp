@@ -8,12 +8,15 @@
 #include "Window.h"
 #include "Platform/Vulkan/VulkanRenderer.h"
 #include "Platform/Windows/WindowsWindow.h"
+#include "Log.h"
 
 CEngine* CEngine::GEngine = nullptr;
 
 void CEngine::Start()
 {
     GEngine = this;
+    
+    CLog::Init();
 
     Window = new CWindowsWindow(SWindowSpecification { "Rocket Engine", PARAMETER_VIEWPORT_WIDTH, PARAMETER_VIEWPORT_HEIGHT } );
     Window->CreateNativeWindow();

@@ -28,6 +28,7 @@ source_group(TREE ${CMAKE_CURRENT_SOURCE_DIR}/Engine/Source PREFIX "Files" FILES
 find_package(Vulkan REQUIRED)
 find_package(glfw3 CONFIG REQUIRED)
 find_package(glm CONFIG REQUIRED)
+find_package(spdlog CONFIG REQUIRED)
 
 # Engine project
 add_library(Engine STATIC ${ENGINE_FILES})
@@ -41,6 +42,7 @@ target_link_libraries(Engine PRIVATE
     glfw
     glm::glm
     Vulkan::Vulkan
+    spdlog::spdlog_header_only
 )
 
 target_compile_definitions(Engine PRIVATE
@@ -87,6 +89,7 @@ target_include_directories(Editor PRIVATE
 target_link_libraries(Editor PRIVATE 
     Engine
     Vulkan::Vulkan
+    spdlog::spdlog_header_only
 )
 
 target_compile_definitions(Editor PRIVATE
@@ -120,13 +123,13 @@ set(CMAKE_EXE_LINKER_FLAGS_DIST "")
 foreach(CONFIG_TYPE IN ITEMS Debug Release Dist)
     string(TOUPPER ${CONFIG_TYPE} CONFIG_NAME_UPPER)
     if(${CONFIG_TYPE} STREQUAL "Debug")
-        target_compile_definitions(Engine PRIVATE MOD_DEBUG)
-        target_compile_definitions(Editor PRIVATE MOD_DEBUG)
+        target_compile_definitions(Engine PRIVATE RK_DEBUG)
+        target_compile_definitions(Editor PRIVATE RK_DEBUG)
     elseif(${CONFIG_TYPE} STREQUAL "Release")
-        target_compile_definitions(Engine PRIVATE MOD_RELEASE)
-        target_compile_definitions(Editor PRIVATE MOD_RELEASE)
+        target_compile_definitions(Engine PRIVATE RK_RELEASE)
+        target_compile_definitions(Editor PRIVATE RK_RELEASE)
     elseif(${CONFIG_TYPE} STREQUAL "Dist")
-        target_compile_definitions(Engine PRIVATE MOD_DIST)
-        target_compile_definitions(Editor PRIVATE MOD_DIST)
+        target_compile_definitions(Engine PRIVATE RK_DIST)
+        target_compile_definitions(Editor PRIVATE RK_DIST)
     endif()
 endforeach()
