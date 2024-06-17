@@ -3,8 +3,10 @@
 #include <vector>
 #include <memory>
 #include <vulkan/vulkan_core.h>
+#include <optional>
 
 #include "Renderer/RendererContext.h"
+#include "Math/MathTypes.h"
 
 class RkVulkanValidationLayer
 {
@@ -20,8 +22,6 @@ private:
     const char* ValidationLayerName;
 
     bool bIsValidFlag = true;
-
-    
 };
 
 class RkVulkanDebugMessenger
@@ -41,6 +41,13 @@ private:
     VkDebugUtilsMessengerEXT DebugMessenger;
 };
 
+struct RkPhysicalDevice
+{
+    VkPhysicalDevice Handle;
+    
+    std::optional<uint32> GraphicsFamily;
+};
+
 class CVulkanRendererContext : public CRendererContext
 {    
 public:
@@ -48,7 +55,6 @@ public:
     virtual void Destroy() override;
 
 private:
-    //std::vector<RkVulkanValidationLayer> ValidationLayers;
-    //std::vector<RkVulkanDebugMessenger> DebugMessengers;
     std::shared_ptr<RkVulkanDebugMessenger> DebugMessenger;
+    std::shared_ptr<RkPhysicalDevice> PhysicalDevice;
 };

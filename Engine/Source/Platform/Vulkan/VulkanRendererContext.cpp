@@ -6,7 +6,6 @@
 #include <vulkan/vulkan_core.h>
 
 #include "Core/Assert.h"
-#include "Math/MathTypes.h"
 
 namespace Utils
 {
@@ -31,6 +30,47 @@ namespace Utils
         {
             func(instance, debugMessenger, pAllocator);
         }
+    }
+
+    std::optional<uint32> FindQueueFamilies(VkPhysicalDevice PhysicalDevice)
+    {
+        std::optional<uint32> Indices;
+
+        uint32 QueueFamilyCount = 0;
+        vkGetPhysicalDeviceQueueFamilyProperties(PhysicalDevice, &QueueFamilyCount, nullptr);
+
+        std::vector<VkQueueFamilyProperties> QueueFamilies(QueueFamilyCount);
+        vkGetPhysicalDeviceQueueFamilyProperties(PhysicalDevice, &QueueFamilyCount, QueueFamilies.data());
+
+        for (int32 Index = 0; Index < QueueFamilyCount; Index++)
+        {
+            const VkQueueFamilyProperties& FamilyProperty = QueueFamilies[Index];
+            if (FamilyProperty.queueFlags & VK_QUEUE_GRAPHICS_BIT)
+            {
+                Indices = Index;
+            }
+
+            if (Indices.has_value())
+            {
+                break;
+            }
+        }
+        return Indices;
+    }
+
+    bool IsVulkanCapablePhysicalDevice(VkPhysicalDevice PhysicalDevice)
+    {
+        VkPhysicalDeviceProperties DeviceProperties;
+        vkGetPhysicalDeviceProperties(PhysicalDevice, &DeviceProperties);
+
+        VkPhysicalDeviceFeatures DeviceFeatures;
+        vkGetPhysicalDeviceFeatures(PhysicalDevice, &DeviceFeatures);
+
+        std::optional<uint32> Indices = FindQueueFamilies(PhysicalDevice);
+
+        return DeviceProperties.deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU 
+            && DeviceFeatures.geometryShader 
+            && Indices.has_value();
     }
 }
 
@@ -147,6 +187,25 @@ void CVulkanRendererContext::Init()
     ContextHandle = Instance;
 
     DebugMessenger->SetupDebugMessenger(Instance);
+
+    // Select a physical device
+    PhysicalDevice = std::make_shared<RkPhysicalDevice>();
+    
+    uint32 DeviceCount = 0;
+    vkEnumeratePhysicalDevices(Instance, &DeviceCount, 0);
+    RK_ENGINE_ASSERT(DeviceCount > 0, "No physical device found.");
+
+    std::vector<VkPhysicalDevice> PhysicalDevices(DeviceCount);
+    vkEnumeratePhysicalDevices(Instance, &DeviceCount, PhysicalDevices.data());
+
+    for (VkPhysicalDevice Device : PhysicalDevices)
+    {
+        if (Utils::IsVulkanCapablePhysicalDevice(Device))
+        {
+            PhysicalDevice->Handle = Device;
+            break;
+        }
+    }
 }
 
 void CVulkanRendererContext::Destroy() 
