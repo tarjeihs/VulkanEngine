@@ -2,8 +2,6 @@
 
 #include "Renderer/Renderer.h"
 
-class CMaterialInstance;
-
 class CVulkanRenderer : public CRenderer
 {
 public:

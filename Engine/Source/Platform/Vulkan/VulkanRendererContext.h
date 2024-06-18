@@ -7,20 +7,20 @@
 
 #include "Renderer/RendererContext.h"
 #include "Math/MathTypes.h"
+#include "Core/Assert.h"
 
 class RkVulkanValidationLayer
 {
 public:
     RkVulkanValidationLayer(const char* InValidationLayerName)
-        : ValidationLayerName(InValidationLayerName)
+        : Name(InValidationLayerName)
     {
+        RK_ENGINE_ASSERT(IsSupported(), "This Validation Layer is not supported.");
     }
 
     bool IsSupported();
-    void Enable(VkInstanceCreateInfo& CreateInfo);
-private:
-    const char* ValidationLayerName;
-
+    
+    const char* Name;
     bool bIsValidFlag = true;
 };
 
@@ -37,24 +37,41 @@ public:
     void DestroyDebugMessenger(VkInstance Instance);
     VkDebugUtilsMessengerCreateInfoEXT CreateDebugMessengerCreateInfo();
     VkDebugUtilsMessengerEXT GetDebugMessenger() const;
+
 private:
     VkDebugUtilsMessengerEXT DebugMessenger;
 };
 
-struct RkPhysicalDevice
+struct RkQueueFamilyIndices
 {
-    VkPhysicalDevice Handle;
-    
-    std::optional<uint32> GraphicsFamily;
+    std::optional<uint32_t> GraphicsFamily;
+    std::optional<uint32_t> PresentFamily;
+
+    inline bool IsComplete() const
+    {
+        return GraphicsFamily.has_value() && PresentFamily.has_value();
+    }
 };
 
-class CVulkanRendererContext : public CRendererContext
+class RkVulkanRendererContext : public CRendererContext
 {    
 public:
     virtual void Init() override;
     virtual void Destroy() override;
 
+protected:
+    void CreateVulkanInstance();
+    void CreateWindowSurface();
+    void CreatePhysicalDevice();
+    void CreateLogicalDevice();
+
 private:
+    VkQueue GraphicsQueue;
+    VkSurfaceKHR Surface;
+    VkDevice LogicalDevice;
+    VkPhysicalDevice PhysicalDevice;
+    RkQueueFamilyIndices QueueFamily;
+
     std::shared_ptr<RkVulkanDebugMessenger> DebugMessenger;
-    std::shared_ptr<RkPhysicalDevice> PhysicalDevice;
+    std::vector<RkVulkanValidationLayer> ValidationLayers;
 };

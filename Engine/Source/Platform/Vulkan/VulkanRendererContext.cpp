@@ -2,10 +2,14 @@
 
 #include <cassert>
 #include <stdexcept>
-#include <glfw/glfw3.h>
+#define VK_USE_PLATFORM_WIN32_KHR
+#include <GLFW/glfw3.h>
+#define GLFW_EXPOSE_NATIVE_WIN32
+#include <GLFW/glfw3native.h>
 #include <vulkan/vulkan_core.h>
 
 #include "Core/Assert.h"
+#include "Core/Window.h"
 
 namespace Utils
 {
@@ -32,9 +36,9 @@ namespace Utils
         }
     }
 
-    std::optional<uint32> FindQueueFamilies(VkPhysicalDevice PhysicalDevice)
+    RkQueueFamilyIndices FindQueueFamilies(VkPhysicalDevice PhysicalDevice)
     {
-        std::optional<uint32> Indices;
+        RkQueueFamilyIndices Indices;
 
         uint32 QueueFamilyCount = 0;
         vkGetPhysicalDeviceQueueFamilyProperties(PhysicalDevice, &QueueFamilyCount, nullptr);
@@ -47,10 +51,10 @@ namespace Utils
             const VkQueueFamilyProperties& FamilyProperty = QueueFamilies[Index];
             if (FamilyProperty.queueFlags & VK_QUEUE_GRAPHICS_BIT)
             {
-                Indices = Index;
+                Indices.GraphicsFamily = Index;
             }
 
-            if (Indices.has_value())
+            if (Indices.GraphicsFamily.has_value())
             {
                 break;
             }
@@ -66,11 +70,8 @@ namespace Utils
         VkPhysicalDeviceFeatures DeviceFeatures;
         vkGetPhysicalDeviceFeatures(PhysicalDevice, &DeviceFeatures);
 
-        std::optional<uint32> Indices = FindQueueFamilies(PhysicalDevice);
-
-        return DeviceProperties.deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU 
-            && DeviceFeatures.geometryShader 
-            && Indices.has_value();
+        return DeviceProperties.deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU
+            && DeviceFeatures.geometryShader;
     }
 }
 
@@ -127,29 +128,36 @@ bool RkVulkanValidationLayer::IsSupported()
 
     for (const auto& LayerProperty : LayerProperties)
     {
-        if (strcmp(ValidationLayerName, LayerProperty.layerName) == 0)
+        if (strcmp(Name, LayerProperty.layerName) == 0)
         {
             return true;
         }
     }
-
     return false;
 }
 
-void RkVulkanValidationLayer::Enable(VkInstanceCreateInfo& CreateInfo)
-{
-    RK_ENGINE_ASSERT(IsSupported(), "This Validation Layer is not supported.");
-
-    static std::vector<const char*> Result;
-    Result.emplace_back(ValidationLayerName);
-
-    CreateInfo.enabledLayerCount++;
-    CreateInfo.ppEnabledLayerNames = Result.data();
-}
 
 /* CVulkanRendererContext */
 
-void CVulkanRendererContext::Init()
+void RkVulkanRendererContext::Init()
+{
+    ValidationLayers.push_back(RkVulkanValidationLayer("VK_LAYER_KHRONOS_validation"));
+
+    CreateVulkanInstance();
+    CreateWindowSurface();
+    CreatePhysicalDevice();
+    CreateLogicalDevice();
+}
+
+void RkVulkanRendererContext::Destroy() 
+{
+    vkDestroySurfaceKHR((VkInstance)ContextHandle, Surface, nullptr);
+    vkDestroyDevice(LogicalDevice, nullptr);
+    DebugMessenger->DestroyDebugMessenger((VkInstance)ContextHandle);
+    vkDestroyInstance((VkInstance)ContextHandle, nullptr);
+}
+
+void RkVulkanRendererContext::CreateVulkanInstance()
 {
     VkApplicationInfo AppInfo{};
     AppInfo.sType = VK_STRUCTURE_TYPE_APPLICATION_INFO;
@@ -169,48 +177,97 @@ void CVulkanRendererContext::Init()
 
     std::vector<const char*> Extensions(GlfwExtensions, GlfwExtensions + GlfwExtensionCount);
     Extensions.push_back(VK_EXT_DEBUG_UTILS_EXTENSION_NAME);
-    
+
     CreateInfo.enabledExtensionCount = static_cast<uint32>(Extensions.size());
     CreateInfo.ppEnabledExtensionNames = Extensions.data();
 
     VkDebugUtilsMessengerCreateInfoEXT DebugCreateInfo{};
-    RkVulkanValidationLayer* ValidationLayer = new RkVulkanValidationLayer("VK_LAYER_KHRONOS_validation");
-    ValidationLayer->Enable(CreateInfo);
+
+    std::vector<const char*> Result;
+    for (auto& ValidationLayer : ValidationLayers)
+    {
+        Result.emplace_back(ValidationLayer.Name);
+    }
+    CreateInfo.enabledLayerCount = Result.size();
+    CreateInfo.ppEnabledLayerNames = Result.data();
 
     DebugMessenger = std::make_shared<RkVulkanDebugMessenger>();
     DebugCreateInfo = DebugMessenger->CreateDebugMessengerCreateInfo();
     CreateInfo.pNext = (VkDebugUtilsMessengerCreateInfoEXT*)&DebugCreateInfo;
 
     VkInstance Instance;
-    VkResult Result = vkCreateInstance(&CreateInfo, nullptr, &Instance);
-    RK_ENGINE_ASSERT(Result == VK_SUCCESS, "Failed to create Vulkan context.");
+    VkResult CreateInstanceResult = vkCreateInstance(&CreateInfo, nullptr, &Instance);
+    RK_ENGINE_ASSERT(CreateInstanceResult == VK_SUCCESS, "Failed to create Vulkan context.");
     ContextHandle = Instance;
 
     DebugMessenger->SetupDebugMessenger(Instance);
+}
 
-    // Select a physical device
-    PhysicalDevice = std::make_shared<RkPhysicalDevice>();
-    
+void RkVulkanRendererContext::CreateWindowSurface()
+{
+    VkWin32SurfaceCreateInfoKHR CreateInfo{};
+    CreateInfo.sType = VK_STRUCTURE_TYPE_WIN32_SURFACE_CREATE_INFO_KHR;
+    CreateInfo.hwnd = glfwGetWin32Window((GLFWwindow*)GetWindow()->GetNativeWindow());
+    CreateInfo.hinstance = GetModuleHandle(nullptr);
+
+    VkResult Result;
+    Result = glfwCreateWindowSurface((VkInstance)ContextHandle, (GLFWwindow*)GetWindow()->GetNativeWindow(), nullptr, &Surface);
+    RK_ENGINE_ASSERT(Result == VK_SUCCESS, "Failed to create Win32 surface");
+}
+
+void RkVulkanRendererContext::CreatePhysicalDevice()
+{
     uint32 DeviceCount = 0;
-    vkEnumeratePhysicalDevices(Instance, &DeviceCount, 0);
+    vkEnumeratePhysicalDevices((VkInstance)ContextHandle, &DeviceCount, 0);
     RK_ENGINE_ASSERT(DeviceCount > 0, "No physical device found.");
 
     std::vector<VkPhysicalDevice> PhysicalDevices(DeviceCount);
-    vkEnumeratePhysicalDevices(Instance, &DeviceCount, PhysicalDevices.data());
+    vkEnumeratePhysicalDevices((VkInstance)ContextHandle, &DeviceCount, PhysicalDevices.data());
+
 
     for (VkPhysicalDevice Device : PhysicalDevices)
     {
+        std::optional<uint32> Indices;
         if (Utils::IsVulkanCapablePhysicalDevice(Device))
         {
-            PhysicalDevice->Handle = Device;
+            PhysicalDevice = Device;
             break;
         }
     }
 }
 
-void CVulkanRendererContext::Destroy() 
+void RkVulkanRendererContext::CreateLogicalDevice()
 {
-    DebugMessenger->DestroyDebugMessenger((VkInstance)ContextHandle);
+    RkQueueFamilyIndices QueueFamily = Utils::FindQueueFamilies(PhysicalDevice);
 
-    vkDestroyInstance((VkInstance)ContextHandle, nullptr);
+    VkDeviceQueueCreateInfo QueueCreateInfo{};
+    QueueCreateInfo.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
+    QueueCreateInfo.queueFamilyIndex = QueueFamily.GraphicsFamily.value();
+    QueueCreateInfo.queueCount = 1;
+
+    float QueuePriority = 1.0f;
+    QueueCreateInfo.pQueuePriorities = &QueuePriority;
+
+    VkPhysicalDeviceFeatures DeviceFeatures{};
+
+    VkDeviceCreateInfo LogicalDeviceCreateInfo{};
+    LogicalDeviceCreateInfo.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
+    LogicalDeviceCreateInfo.pQueueCreateInfos = &QueueCreateInfo;
+    LogicalDeviceCreateInfo.queueCreateInfoCount = 1;
+    LogicalDeviceCreateInfo.pEnabledFeatures = &DeviceFeatures;
+    LogicalDeviceCreateInfo.enabledExtensionCount = 0;
+
+    std::vector<const char*> Result;
+    for (auto& ValidationLayer : ValidationLayers)
+    {
+        Result.emplace_back(ValidationLayer.Name);
+    }
+    LogicalDeviceCreateInfo.enabledLayerCount = Result.size();
+    LogicalDeviceCreateInfo.ppEnabledLayerNames = Result.data();
+
+    VkResult CreateLogicalDeviceResult = vkCreateDevice(PhysicalDevice, &LogicalDeviceCreateInfo, nullptr, &LogicalDevice);
+    RK_ENGINE_ASSERT(CreateLogicalDeviceResult == VK_SUCCESS, "Failed to create logical device.");
+
+    vkGetDeviceQueue(LogicalDevice, QueueFamily.GraphicsFamily.value(), 0, &GraphicsQueue);
 }
+ 

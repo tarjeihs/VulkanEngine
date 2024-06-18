@@ -14,11 +14,7 @@ void CWindowsWindow::CreateNativeWindow()
     glfwWindowHint(GLFW_RESIZABLE, GLFW_FALSE);
 
     WindowHandle = glfwCreateWindow(Specification.Width, Specification.Height, Specification.Title, nullptr, nullptr);
-    if (WindowHandle == nullptr)
-    {
-        glfwTerminate();
-        ASSERT(false, "Failed to create GLFW window");
-    }
+    RK_ENGINE_ASSERT(WindowHandle, "Failed to create GLFW window");
 
     glfwSetWindowUserPointer((GLFWwindow*)WindowHandle, &UserData);
     glfwSetInputMode((GLFWwindow*)WindowHandle, GLFW_CURSOR, GLFW_CURSOR_NORMAL);
@@ -27,7 +23,7 @@ void CWindowsWindow::CreateNativeWindow()
     glfwSwapInterval(1); // Enable vsync
     
     // Vulkan Context
-    RendererContext = new CVulkanRendererContext();
+    RendererContext = new RkVulkanRendererContext();
     RendererContext->Init();
 }
 
