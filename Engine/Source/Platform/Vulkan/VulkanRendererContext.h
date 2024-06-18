@@ -9,10 +9,10 @@
 #include "Math/MathTypes.h"
 #include "Core/Assert.h"
 
-class RkVulkanValidationLayer
+class RkValidationLayer
 {
 public:
-    RkVulkanValidationLayer(const char* InValidationLayerName)
+    RkValidationLayer(const char* InValidationLayerName)
         : Name(InValidationLayerName)
     {
         RK_ENGINE_ASSERT(IsSupported(), "This Validation Layer is not supported.");
@@ -22,24 +22,6 @@ public:
     
     const char* Name;
     bool bIsValidFlag = true;
-};
-
-class RkVulkanDebugMessenger
-{
-public:
-    static VKAPI_ATTR VkBool32 VKAPI_CALL DebugCallback(
-        VkDebugUtilsMessageSeverityFlagBitsEXT Severity, 
-        VkDebugUtilsMessageTypeFlagsEXT Type, 
-        const VkDebugUtilsMessengerCallbackDataEXT* CallbackData, 
-        void* UserData);
-
-    void SetupDebugMessenger(VkInstance Instance);
-    void DestroyDebugMessenger(VkInstance Instance);
-    VkDebugUtilsMessengerCreateInfoEXT CreateDebugMessengerCreateInfo();
-    VkDebugUtilsMessengerEXT GetDebugMessenger() const;
-
-private:
-    VkDebugUtilsMessengerEXT DebugMessenger;
 };
 
 struct RkQueueFamilyIndices
@@ -53,6 +35,18 @@ struct RkQueueFamilyIndices
     }
 };
 
+struct RkSwapChainSupportDetails
+{
+    // Swapchain capabilities (eg. min/max images in swap chain, min/max resolution of images)
+    VkSurfaceCapabilitiesKHR Capabilities;
+
+    // Pixel format, color depth
+    std::vector<VkSurfaceFormatKHR> Formats;
+
+    // Conditions for "swapping" images to the screen
+    std::vector<VkPresentModeKHR> PresentMode;
+};
+
 class RkVulkanRendererContext : public CRendererContext
 {    
 public:
@@ -60,18 +54,42 @@ public:
     virtual void Destroy() override;
 
 protected:
-    void CreateVulkanInstance();
-    void CreateWindowSurface();
+    void CreateInstance();
+    void CreateSurfaceInterface();
     void CreatePhysicalDevice();
     void CreateLogicalDevice();
+    void CreateSwapchain();
+
+    void SetupDebugMessenger(VkInstance Instance);
+    void DestroyDebugMessenger(VkInstance Instance);
+    VkDebugUtilsMessengerCreateInfoEXT CreateDebugMessengerCreateInfo();
+    VkDebugUtilsMessengerEXT GetDebugMessenger() const;
+
+    static VKAPI_ATTR VkBool32 VKAPI_CALL DebugCallback(
+            VkDebugUtilsMessageSeverityFlagBitsEXT Severity,
+            VkDebugUtilsMessageTypeFlagsEXT Type,
+            const VkDebugUtilsMessengerCallbackDataEXT* CallbackData,
+            void* UserData);
+
+    VkSurfaceFormatKHR SelectSwapchainSurfaceFormat(const std::vector<VkSurfaceFormatKHR>& Formats);
+    VkPresentModeKHR SelectSwapchainPresentMode(const std::vector<VkPresentModeKHR>& PresentModes);
+    VkExtent2D SelectSwapExtent(const VkSurfaceCapabilitiesKHR& Capabilities);
+    
+    RkSwapChainSupportDetails RequestSwapchainSupportDetails(VkPhysicalDevice PhysicalDevice);
+    RkQueueFamilyIndices RequestQueueFamilies(VkPhysicalDevice PhysicalDevice);
+    bool IsVulkanCapableDevice(VkPhysicalDevice PhysicalDevice);
 
 private:
     VkQueue GraphicsQueue;
-    VkSurfaceKHR Surface;
+    VkSurfaceKHR SurfaceInterface;
     VkDevice LogicalDevice;
     VkPhysicalDevice PhysicalDevice;
-    RkQueueFamilyIndices QueueFamily;
+    VkDebugUtilsMessengerEXT DebugMessenger;
+    VkSwapchainKHR Swapchain;
+    VkFormat SwapchainImageFormat;
+    VkExtent2D SwapchainExtent;
 
-    std::shared_ptr<RkVulkanDebugMessenger> DebugMessenger;
-    std::vector<RkVulkanValidationLayer> ValidationLayers;
+    std::vector<VkImage> SwapchainImages;
+    std::vector<RkValidationLayer> ValidationLayers;
+    std::vector<const char*> Extensions = { VK_KHR_SWAPCHAIN_EXTENSION_NAME };
 };

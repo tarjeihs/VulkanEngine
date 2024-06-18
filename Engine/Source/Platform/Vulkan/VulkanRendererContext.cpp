@@ -1,15 +1,18 @@
 ﻿#include "VulkanRendererContext.h"
 
+#define VK_USE_PLATFORM_WIN32_KHR
+#define GLFW_EXPOSE_NATIVE_WIN32
+
 #include <cassert>
 #include <stdexcept>
-#define VK_USE_PLATFORM_WIN32_KHR
+#include <set>
 #include <GLFW/glfw3.h>
-#define GLFW_EXPOSE_NATIVE_WIN32
 #include <GLFW/glfw3native.h>
 #include <vulkan/vulkan_core.h>
 
 #include "Core/Assert.h"
 #include "Core/Window.h"
+#include "Math/Math.h"
 
 namespace Utils
 {
@@ -35,49 +38,11 @@ namespace Utils
             func(instance, debugMessenger, pAllocator);
         }
     }
-
-    RkQueueFamilyIndices FindQueueFamilies(VkPhysicalDevice PhysicalDevice)
-    {
-        RkQueueFamilyIndices Indices;
-
-        uint32 QueueFamilyCount = 0;
-        vkGetPhysicalDeviceQueueFamilyProperties(PhysicalDevice, &QueueFamilyCount, nullptr);
-
-        std::vector<VkQueueFamilyProperties> QueueFamilies(QueueFamilyCount);
-        vkGetPhysicalDeviceQueueFamilyProperties(PhysicalDevice, &QueueFamilyCount, QueueFamilies.data());
-
-        for (int32 Index = 0; Index < QueueFamilyCount; Index++)
-        {
-            const VkQueueFamilyProperties& FamilyProperty = QueueFamilies[Index];
-            if (FamilyProperty.queueFlags & VK_QUEUE_GRAPHICS_BIT)
-            {
-                Indices.GraphicsFamily = Index;
-            }
-
-            if (Indices.GraphicsFamily.has_value())
-            {
-                break;
-            }
-        }
-        return Indices;
-    }
-
-    bool IsVulkanCapablePhysicalDevice(VkPhysicalDevice PhysicalDevice)
-    {
-        VkPhysicalDeviceProperties DeviceProperties;
-        vkGetPhysicalDeviceProperties(PhysicalDevice, &DeviceProperties);
-
-        VkPhysicalDeviceFeatures DeviceFeatures;
-        vkGetPhysicalDeviceFeatures(PhysicalDevice, &DeviceFeatures);
-
-        return DeviceProperties.deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU
-            && DeviceFeatures.geometryShader;
-    }
 }
 
 /* RkVulkanDebugMessenger */
 
-VKAPI_ATTR VkBool32 VKAPI_CALL RkVulkanDebugMessenger::DebugCallback(VkDebugUtilsMessageSeverityFlagBitsEXT Severity, VkDebugUtilsMessageTypeFlagsEXT Type, const VkDebugUtilsMessengerCallbackDataEXT* CallbackData, void* UserData)
+VKAPI_ATTR VkBool32 VKAPI_CALL RkVulkanRendererContext::DebugCallback(VkDebugUtilsMessageSeverityFlagBitsEXT Severity, VkDebugUtilsMessageTypeFlagsEXT Type, const VkDebugUtilsMessengerCallbackDataEXT* CallbackData, void* UserData)
 {
     switch (Severity)
     {
@@ -89,19 +54,69 @@ VKAPI_ATTR VkBool32 VKAPI_CALL RkVulkanDebugMessenger::DebugCallback(VkDebugUtil
     return VK_FALSE;
 }
 
-void RkVulkanDebugMessenger::SetupDebugMessenger(VkInstance Instance)
+VkSurfaceFormatKHR RkVulkanRendererContext::SelectSwapchainSurfaceFormat(const std::vector<VkSurfaceFormatKHR>& Formats)
+{
+    for (const auto& Format : Formats)
+    {
+        // Prefer SRGB if available (results in more accurate perceived colors and is the golden standard).
+        if (Format.format == VK_FORMAT_B8G8R8A8_SRGB && Format.colorSpace == VK_COLOR_SPACE_SRGB_NONLINEAR_KHR)
+        {
+            return Format;
+        }
+    }
+    return Formats[0];
+}
+
+VkPresentModeKHR RkVulkanRendererContext::SelectSwapchainPresentMode(const std::vector<VkPresentModeKHR>& PresentModes)
+{
+    for (const auto& PresentMode : PresentModes)
+    {
+        // Instead of blocking the application when the queue is full, the images that are already queued are simply replaced with the newer ones. 
+        // This mode can be used to render frames as fast as possible while still avoiding tearing, resulting in fewer latency issues than standard vertical sync
+        if (PresentMode == VK_PRESENT_MODE_MAILBOX_KHR)
+        {
+            return PresentMode;
+        }
+    }
+    return VK_PRESENT_MODE_FIFO_KHR;
+}
+
+VkExtent2D RkVulkanRendererContext::SelectSwapExtent(const VkSurfaceCapabilitiesKHR& Capabilities)
+{
+    if (Capabilities.currentExtent.width == std::numeric_limits<uint32>::max())
+    {
+        int32 Width, Height;
+        glfwGetFramebufferSize((GLFWwindow*)GetWindow()->GetNativeWindow(), &Width, &Height);
+
+        VkExtent2D Extent = {
+            static_cast<uint32>(Width),
+            static_cast<uint32>(Height)
+        };
+
+        Extent.width = Math::Clamp(Extent.width, Capabilities.minImageExtent.width, Capabilities.maxImageExtent.width);
+        Extent.height = Math::Clamp(Extent.height, Capabilities.minImageExtent.height, Capabilities.maxImageExtent.height);
+
+        return Extent;
+    }
+    else
+    {
+        return Capabilities.currentExtent;
+    }
+}
+
+void RkVulkanRendererContext::SetupDebugMessenger(VkInstance Instance)
 {
     VkDebugUtilsMessengerCreateInfoEXT createInfo = CreateDebugMessengerCreateInfo();
     VkResult Result = Utils::CreateDebugUtilsMessengerEXT(Instance, &createInfo, nullptr, &DebugMessenger);
     assert(Result == VK_SUCCESS);
 }
 
-void RkVulkanDebugMessenger::DestroyDebugMessenger(VkInstance Instance)
+void RkVulkanRendererContext::DestroyDebugMessenger(VkInstance Instance)
 {
     Utils::DestroyDebugUtilsMessengerEXT(Instance, DebugMessenger, nullptr);
 }
 
-VkDebugUtilsMessengerCreateInfoEXT RkVulkanDebugMessenger::CreateDebugMessengerCreateInfo()
+VkDebugUtilsMessengerCreateInfoEXT RkVulkanRendererContext::CreateDebugMessengerCreateInfo()
 {
     VkDebugUtilsMessengerCreateInfoEXT createInfo{};
     createInfo.sType = VK_STRUCTURE_TYPE_DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT;
@@ -111,14 +126,14 @@ VkDebugUtilsMessengerCreateInfoEXT RkVulkanDebugMessenger::CreateDebugMessengerC
     return createInfo;
 }
 
-VkDebugUtilsMessengerEXT RkVulkanDebugMessenger::GetDebugMessenger() const
+VkDebugUtilsMessengerEXT RkVulkanRendererContext::GetDebugMessenger() const
 {
     return DebugMessenger;
 }
 
 /* RkVulkanValidationLayer */
 
-bool RkVulkanValidationLayer::IsSupported()
+bool RkValidationLayer::IsSupported()
 {
     uint32 LayerCount = 0;
     vkEnumerateInstanceLayerProperties(&LayerCount, 0);
@@ -141,23 +156,25 @@ bool RkVulkanValidationLayer::IsSupported()
 
 void RkVulkanRendererContext::Init()
 {
-    ValidationLayers.push_back(RkVulkanValidationLayer("VK_LAYER_KHRONOS_validation"));
+    ValidationLayers.push_back(RkValidationLayer("VK_LAYER_KHRONOS_validation"));
 
-    CreateVulkanInstance();
-    CreateWindowSurface();
+    CreateInstance();
+    CreateSurfaceInterface();
     CreatePhysicalDevice();
     CreateLogicalDevice();
+    CreateSwapchain();
 }
 
 void RkVulkanRendererContext::Destroy() 
 {
-    vkDestroySurfaceKHR((VkInstance)ContextHandle, Surface, nullptr);
+    vkDestroySwapchainKHR(LogicalDevice, Swapchain, nullptr);
+    vkDestroySurfaceKHR((VkInstance)ContextHandle, SurfaceInterface, nullptr);
     vkDestroyDevice(LogicalDevice, nullptr);
-    DebugMessenger->DestroyDebugMessenger((VkInstance)ContextHandle);
+    DestroyDebugMessenger((VkInstance)ContextHandle);
     vkDestroyInstance((VkInstance)ContextHandle, nullptr);
 }
 
-void RkVulkanRendererContext::CreateVulkanInstance()
+void RkVulkanRendererContext::CreateInstance()
 {
     VkApplicationInfo AppInfo{};
     AppInfo.sType = VK_STRUCTURE_TYPE_APPLICATION_INFO;
@@ -191,8 +208,7 @@ void RkVulkanRendererContext::CreateVulkanInstance()
     CreateInfo.enabledLayerCount = Result.size();
     CreateInfo.ppEnabledLayerNames = Result.data();
 
-    DebugMessenger = std::make_shared<RkVulkanDebugMessenger>();
-    DebugCreateInfo = DebugMessenger->CreateDebugMessengerCreateInfo();
+    DebugCreateInfo = CreateDebugMessengerCreateInfo();
     CreateInfo.pNext = (VkDebugUtilsMessengerCreateInfoEXT*)&DebugCreateInfo;
 
     VkInstance Instance;
@@ -200,10 +216,10 @@ void RkVulkanRendererContext::CreateVulkanInstance()
     RK_ENGINE_ASSERT(CreateInstanceResult == VK_SUCCESS, "Failed to create Vulkan context.");
     ContextHandle = Instance;
 
-    DebugMessenger->SetupDebugMessenger(Instance);
+    SetupDebugMessenger(Instance);
 }
 
-void RkVulkanRendererContext::CreateWindowSurface()
+void RkVulkanRendererContext::CreateSurfaceInterface()
 {
     VkWin32SurfaceCreateInfoKHR CreateInfo{};
     CreateInfo.sType = VK_STRUCTURE_TYPE_WIN32_SURFACE_CREATE_INFO_KHR;
@@ -211,7 +227,7 @@ void RkVulkanRendererContext::CreateWindowSurface()
     CreateInfo.hinstance = GetModuleHandle(nullptr);
 
     VkResult Result;
-    Result = glfwCreateWindowSurface((VkInstance)ContextHandle, (GLFWwindow*)GetWindow()->GetNativeWindow(), nullptr, &Surface);
+    Result = glfwCreateWindowSurface((VkInstance)ContextHandle, (GLFWwindow*)GetWindow()->GetNativeWindow(), nullptr, &SurfaceInterface);
     RK_ENGINE_ASSERT(Result == VK_SUCCESS, "Failed to create Win32 surface");
 }
 
@@ -224,50 +240,203 @@ void RkVulkanRendererContext::CreatePhysicalDevice()
     std::vector<VkPhysicalDevice> PhysicalDevices(DeviceCount);
     vkEnumeratePhysicalDevices((VkInstance)ContextHandle, &DeviceCount, PhysicalDevices.data());
 
-
     for (VkPhysicalDevice Device : PhysicalDevices)
     {
         std::optional<uint32> Indices;
-        if (Utils::IsVulkanCapablePhysicalDevice(Device))
+        if (IsVulkanCapableDevice(Device))
         {
             PhysicalDevice = Device;
             break;
         }
     }
 }
+    
 
 void RkVulkanRendererContext::CreateLogicalDevice()
 {
-    RkQueueFamilyIndices QueueFamily = Utils::FindQueueFamilies(PhysicalDevice);
+    RkQueueFamilyIndices QueueFamilyIndices = RequestQueueFamilies(PhysicalDevice);
 
-    VkDeviceQueueCreateInfo QueueCreateInfo{};
-    QueueCreateInfo.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
-    QueueCreateInfo.queueFamilyIndex = QueueFamily.GraphicsFamily.value();
-    QueueCreateInfo.queueCount = 1;
-
+    std::vector<VkDeviceQueueCreateInfo> QueueCreateInfos;
+    std::set<uint32> UniqueQueueFamilies { QueueFamilyIndices.GraphicsFamily.value(), QueueFamilyIndices.PresentFamily.value() };
+    
     float QueuePriority = 1.0f;
-    QueueCreateInfo.pQueuePriorities = &QueuePriority;
+    for (uint32 Idx : UniqueQueueFamilies)
+    {
+        VkDeviceQueueCreateInfo QueueCreateInfo{};
+        QueueCreateInfo.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
+        QueueCreateInfo.queueFamilyIndex = Idx;
+        QueueCreateInfo.queueCount = 1;
+        QueueCreateInfo.pQueuePriorities = &QueuePriority;
+        QueueCreateInfos.push_back(QueueCreateInfo);
+    }
 
     VkPhysicalDeviceFeatures DeviceFeatures{};
 
-    VkDeviceCreateInfo LogicalDeviceCreateInfo{};
-    LogicalDeviceCreateInfo.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
-    LogicalDeviceCreateInfo.pQueueCreateInfos = &QueueCreateInfo;
-    LogicalDeviceCreateInfo.queueCreateInfoCount = 1;
-    LogicalDeviceCreateInfo.pEnabledFeatures = &DeviceFeatures;
-    LogicalDeviceCreateInfo.enabledExtensionCount = 0;
+    VkDeviceCreateInfo CreateInfo{};
+    CreateInfo.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
+    CreateInfo.pQueueCreateInfos = QueueCreateInfos.data();
+    CreateInfo.queueCreateInfoCount = static_cast<uint32>(QueueCreateInfos.size());
+    CreateInfo.pEnabledFeatures = &DeviceFeatures;
+    CreateInfo.enabledExtensionCount = static_cast<uint32>(Extensions.size());
+    CreateInfo.ppEnabledExtensionNames = Extensions.data();
 
     std::vector<const char*> Result;
     for (auto& ValidationLayer : ValidationLayers)
     {
         Result.emplace_back(ValidationLayer.Name);
     }
-    LogicalDeviceCreateInfo.enabledLayerCount = Result.size();
-    LogicalDeviceCreateInfo.ppEnabledLayerNames = Result.data();
+    CreateInfo.enabledLayerCount = static_cast<uint32>(Result.size());
+    CreateInfo.ppEnabledLayerNames = Result.data();
 
-    VkResult CreateLogicalDeviceResult = vkCreateDevice(PhysicalDevice, &LogicalDeviceCreateInfo, nullptr, &LogicalDevice);
+    VkResult CreateLogicalDeviceResult = vkCreateDevice(PhysicalDevice, &CreateInfo, nullptr, &LogicalDevice);
     RK_ENGINE_ASSERT(CreateLogicalDeviceResult == VK_SUCCESS, "Failed to create logical device.");
 
-    vkGetDeviceQueue(LogicalDevice, QueueFamily.GraphicsFamily.value(), 0, &GraphicsQueue);
+    vkGetDeviceQueue(LogicalDevice, QueueFamilyIndices.GraphicsFamily.value(), 0, &GraphicsQueue);
+    vkGetDeviceQueue(LogicalDevice, QueueFamilyIndices.PresentFamily.value(), 0, &GraphicsQueue);
+}
+
+void RkVulkanRendererContext::CreateSwapchain()
+{
+    RkSwapChainSupportDetails SwapchainSupport = RequestSwapchainSupportDetails(PhysicalDevice);
+
+    VkSurfaceFormatKHR SurfaceFormat = SelectSwapchainSurfaceFormat(SwapchainSupport.Formats);
+    VkPresentModeKHR PresentMode = SelectSwapchainPresentMode(SwapchainSupport.PresentMode);
+    VkExtent2D Extent = SelectSwapExtent(SwapchainSupport.Capabilities);
+
+    // Number of images to use in our swapchain
+    uint32 ImageCount = SwapchainSupport.Capabilities.minImageCount + 1;
+    if (SwapchainSupport.Capabilities.maxImageCount > 0 && ImageCount > SwapchainSupport.Capabilities.maxImageCount)
+    {
+        ImageCount = SwapchainSupport.Capabilities.maxImageCount;
+    }
+
+    VkSwapchainCreateInfoKHR CreateInfo{};
+    CreateInfo.sType = VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR;
+    CreateInfo.surface = SurfaceInterface;
+    CreateInfo.minImageCount = ImageCount;
+    CreateInfo.imageFormat = SurfaceFormat.format;
+    CreateInfo.imageColorSpace = SurfaceFormat.colorSpace;
+    CreateInfo.imageExtent = Extent;
+    CreateInfo.imageArrayLayers = 1;
+    CreateInfo.imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
+
+    RkQueueFamilyIndices Indices = RequestQueueFamilies(PhysicalDevice);
+    uint32 QueueFamilyIndices[] = { Indices.GraphicsFamily.value(), Indices.PresentFamily.value() };
+
+    if (Indices.GraphicsFamily != Indices.PresentFamily)
+    {
+        // Images can be used across multiple queue families without explicit ownership transfers.
+        CreateInfo.imageSharingMode = VK_SHARING_MODE_CONCURRENT;
+        CreateInfo.queueFamilyIndexCount = 2;
+        CreateInfo.pQueueFamilyIndices = QueueFamilyIndices;
+    }
+    else
+    {
+        // An image is owned by one queue family at a time and ownership must be explicitly 
+        // transferred before using it in another queue family. This option offers the best performance.
+        CreateInfo.imageSharingMode = VK_SHARING_MODE_EXCLUSIVE;
+    }
+
+    CreateInfo.preTransform = SwapchainSupport.Capabilities.currentTransform;
+    CreateInfo.compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR;
+    CreateInfo.presentMode = PresentMode;
+    CreateInfo.clipped = VK_TRUE;
+    CreateInfo.oldSwapchain = VK_NULL_HANDLE;
+
+    VkResult Result = vkCreateSwapchainKHR(LogicalDevice, &CreateInfo, nullptr, &Swapchain);
+    RK_ENGINE_ASSERT(Result == VK_SUCCESS, "Failed to create swapchain.");
+
+    vkGetSwapchainImagesKHR(LogicalDevice, Swapchain, &ImageCount, nullptr);
+    SwapchainImages.resize(ImageCount);
+    vkGetSwapchainImagesKHR(LogicalDevice, Swapchain, &ImageCount, SwapchainImages.data());
+
+    SwapchainImageFormat = SurfaceFormat.format;
+    SwapchainExtent = Extent;
 }
  
+RkSwapChainSupportDetails RkVulkanRendererContext::RequestSwapchainSupportDetails(VkPhysicalDevice PhysicalDevice)
+{
+    RkSwapChainSupportDetails SwapChainSupportDetails;
+    vkGetPhysicalDeviceSurfaceCapabilitiesKHR(PhysicalDevice, SurfaceInterface, &SwapChainSupportDetails.Capabilities);
+
+    uint32 FormatCount;
+    vkGetPhysicalDeviceSurfaceFormatsKHR(PhysicalDevice, SurfaceInterface, &FormatCount, nullptr);
+
+    if (FormatCount != 0)
+    {
+        SwapChainSupportDetails.Formats.resize(FormatCount);
+        vkGetPhysicalDeviceSurfaceFormatsKHR(PhysicalDevice, SurfaceInterface, &FormatCount, SwapChainSupportDetails.Formats.data());
+    }
+
+    uint32 PresentModeCount;
+    vkGetPhysicalDeviceSurfacePresentModesKHR(PhysicalDevice, SurfaceInterface, &PresentModeCount, SwapChainSupportDetails.PresentMode.data());
+    if (PresentModeCount != 0)
+    {
+        SwapChainSupportDetails.PresentMode.resize(PresentModeCount);
+        vkGetPhysicalDeviceSurfacePresentModesKHR(PhysicalDevice, SurfaceInterface, &PresentModeCount, SwapChainSupportDetails.PresentMode.data());
+    }
+    return SwapChainSupportDetails;
+}
+
+RkQueueFamilyIndices RkVulkanRendererContext::RequestQueueFamilies(VkPhysicalDevice PhysicalDevice)
+{
+    RkQueueFamilyIndices Indices;
+
+    uint32 QueueFamilyCount = 0;
+    vkGetPhysicalDeviceQueueFamilyProperties(PhysicalDevice, &QueueFamilyCount, nullptr);
+
+    std::vector<VkQueueFamilyProperties> QueueFamilies(QueueFamilyCount);
+    vkGetPhysicalDeviceQueueFamilyProperties(PhysicalDevice, &QueueFamilyCount, QueueFamilies.data());
+
+    for (int32 Index = 0; Index < QueueFamilyCount; Index++)
+    {
+        const VkQueueFamilyProperties& FamilyProperty = QueueFamilies[Index];
+        if (FamilyProperty.queueFlags & VK_QUEUE_GRAPHICS_BIT)
+        {
+            Indices.GraphicsFamily = Index;
+        }
+
+        VkBool32 PresentSupport = false;
+        vkGetPhysicalDeviceSurfaceSupportKHR(PhysicalDevice, Index, SurfaceInterface, &PresentSupport);
+
+        if (PresentSupport)
+        {
+            Indices.PresentFamily = Index;
+        }
+
+        if (Indices.IsComplete())
+        {
+            break;
+        }
+    }
+    return Indices;
+}
+
+// isDeviceSuitable + checkDeviceExtensionSupport
+bool RkVulkanRendererContext::IsVulkanCapableDevice(VkPhysicalDevice PhysicalDevice)
+{
+    RkQueueFamilyIndices Indices = RequestQueueFamilies(PhysicalDevice);
+
+    uint32 ExtensionCount;
+    vkEnumerateDeviceExtensionProperties(PhysicalDevice, nullptr, &ExtensionCount, nullptr);
+
+    std::vector<VkExtensionProperties> AvailableExtensions(ExtensionCount);
+    vkEnumerateDeviceExtensionProperties(PhysicalDevice, nullptr, &ExtensionCount, AvailableExtensions.data());
+
+    std::set<std::string> RequiredExtensions(Extensions.begin(), Extensions.end());
+    for (const auto& Extension : AvailableExtensions)
+    {
+        RequiredExtensions.erase(Extension.extensionName);
+    }
+    
+    bool bExtensionSupport = RequiredExtensions.empty();
+    bool bSwapChainAdequate = false;
+    
+    if (bExtensionSupport)
+    {
+        RkSwapChainSupportDetails SwapChainSupport = RequestSwapchainSupportDetails(PhysicalDevice);
+        bSwapChainAdequate = !SwapChainSupport.Formats.empty() && !SwapChainSupport.PresentMode.empty();
+    }
+
+    return Indices.IsComplete() && bExtensionSupport && bSwapChainAdequate;
+}
