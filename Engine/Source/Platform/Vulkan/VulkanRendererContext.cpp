@@ -108,7 +108,7 @@ void RkVulkanRendererContext::SetupDebugMessenger(VkInstance Instance)
 {
     VkDebugUtilsMessengerCreateInfoEXT createInfo = CreateDebugMessengerCreateInfo();
     VkResult Result = Utils::CreateDebugUtilsMessengerEXT(Instance, &createInfo, nullptr, &DebugMessenger);
-    assert(Result == VK_SUCCESS);
+    RK_ENGINE_ASSERT(Result == VK_SUCCESS);
 }
 
 void RkVulkanRendererContext::DestroyDebugMessenger(VkInstance Instance)
@@ -167,6 +167,11 @@ void RkVulkanRendererContext::Init()
 
 void RkVulkanRendererContext::Destroy() 
 {
+    for (auto ImageView : SwapchainImagesView)
+    {
+        vkDestroyImageView(LogicalDevice, ImageView, nullptr);
+    }
+
     vkDestroySwapchainKHR(LogicalDevice, Swapchain, nullptr);
     vkDestroySurfaceKHR((VkInstance)ContextHandle, SurfaceInterface, nullptr);
     vkDestroyDevice(LogicalDevice, nullptr);
@@ -352,6 +357,34 @@ void RkVulkanRendererContext::CreateSwapchain()
 
     SwapchainImageFormat = SurfaceFormat.format;
     SwapchainExtent = Extent;
+
+    // To use any of the images in the swapchain, a VkImageView object is required (a readonly view into the image).
+    SwapchainImagesView.resize(ImageCount);
+    for (size_t Idx = 0; Idx < ImageCount; Idx++)
+    {
+        VkImageViewCreateInfo ImageViewCreateInfo{};
+        ImageViewCreateInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+        ImageViewCreateInfo.image = SwapchainImages[Idx];
+        ImageViewCreateInfo.viewType = VK_IMAGE_VIEW_TYPE_2D; // Specifies how an image should be interpreted (eg. 1D textures, 2D textures, 3D textures and cube maps).
+        ImageViewCreateInfo.format = SwapchainImageFormat;
+
+        // Default color channel mapping
+        ImageViewCreateInfo.components.r = VK_COMPONENT_SWIZZLE_IDENTITY;
+        ImageViewCreateInfo.components.g = VK_COMPONENT_SWIZZLE_IDENTITY;
+        ImageViewCreateInfo.components.b = VK_COMPONENT_SWIZZLE_IDENTITY;
+        ImageViewCreateInfo.components.a = VK_COMPONENT_SWIZZLE_IDENTITY;
+
+        // Defines image purpose and what part of the image should be accessed. 
+        // Image is currently set to be used as color targets without any mipmapping levels or multiple layers.
+        ImageViewCreateInfo.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+        ImageViewCreateInfo.subresourceRange.baseMipLevel= 0;
+        ImageViewCreateInfo.subresourceRange.levelCount = 1;
+        ImageViewCreateInfo.subresourceRange.baseArrayLayer = 0;
+        ImageViewCreateInfo.subresourceRange.layerCount = 1;
+
+        VkResult Result = vkCreateImageView(LogicalDevice, &ImageViewCreateInfo, nullptr, &SwapchainImagesView[Idx]);
+        RK_ENGINE_ASSERT(Result == VK_SUCCESS, "Failed to create image view.");
+    }
 }
  
 RkSwapChainSupportDetails RkVulkanRendererContext::RequestSwapchainSupportDetails(VkPhysicalDevice PhysicalDevice)

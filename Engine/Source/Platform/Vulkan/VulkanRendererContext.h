@@ -90,6 +90,8 @@ private:
     VkExtent2D SwapchainExtent;
 
     std::vector<VkImage> SwapchainImages;
+    std::vector<VkImageView> SwapchainImagesView;
+
     std::vector<RkValidationLayer> ValidationLayers;
     std::vector<const char*> Extensions = { VK_KHR_SWAPCHAIN_EXTENSION_NAME };
 };
