@@ -168,10 +168,32 @@ void RkVulkanRendererContext::Init()
     CreateRenderPass();
     CreateRenderPipeline();
     CreateFramebuffer();
+    CreateCommandPoolAndBuffer();
+    CreateSynchronizationObjects();
 }
 
 void RkVulkanRendererContext::Destroy() 
 {
+    // Wait until safe to access async
+    vkDeviceWaitIdle(GetLogicalDevice());
+
+    for (auto Semaphore : RenderFinishedSemaphores)
+    {
+        vkDestroySemaphore(GetLogicalDevice(), Semaphore, nullptr);
+    }
+
+    for (auto Semaphore : ImageAvailableSemaphores)
+    {
+        vkDestroySemaphore(GetLogicalDevice(), Semaphore, nullptr);
+    }
+
+    for (auto InFlightFence : InFlightFences)
+    {
+        vkDestroyFence(GetLogicalDevice(), InFlightFence, nullptr);
+    }
+
+    vkDestroyCommandPool(GetLogicalDevice(), CommandPool, nullptr);
+
     for (auto Framebuffer : SwapchainFramebuffers)
     {
         vkDestroyFramebuffer(GetLogicalDevice(), Framebuffer, nullptr);
@@ -181,6 +203,7 @@ void RkVulkanRendererContext::Destroy()
     {
         vkDestroyImageView(LogicalDevice, ImageView, nullptr);
     }
+
     vkDestroyRenderPass(LogicalDevice, RenderPass, nullptr);
     vkDestroyPipeline(LogicalDevice, Pipeline, nullptr);
     vkDestroyPipelineLayout(LogicalDevice, PipelineLayout, nullptr);
@@ -333,12 +356,22 @@ void RkVulkanRendererContext::CreateRenderPass()
     Subpass.colorAttachmentCount = 1;
     Subpass.pColorAttachments = &ColorAttachmentRef;
 
+    VkSubpassDependency Dependency{};
+    Dependency.srcSubpass = VK_SUBPASS_EXTERNAL;
+    Dependency.dstSubpass = 0;
+    Dependency.srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+    Dependency.srcAccessMask = 0;
+    Dependency.dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+    Dependency.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+
     VkRenderPassCreateInfo CreateInfo{};
     CreateInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
     CreateInfo.attachmentCount = 1;
     CreateInfo.pAttachments = &ColorAttachment;
     CreateInfo.subpassCount = 1;
     CreateInfo.pSubpasses = &Subpass;
+    CreateInfo.dependencyCount = 1;
+    CreateInfo.pDependencies = &Dependency;
 
     VkResult Result = vkCreateRenderPass(GetLogicalDevice(), &CreateInfo, nullptr, &RenderPass);
     RK_ENGINE_ASSERT(Result == VK_SUCCESS, "Failed to create render pass.");
@@ -568,6 +601,64 @@ void RkVulkanRendererContext::CreateFramebuffer()
         RK_ENGINE_ASSERT(Result == VK_SUCCESS, "Failed to create Vulkan framebuffer.");
     }
 }
+
+void RkVulkanRendererContext::CreateCommandPoolAndBuffer()
+{
+    RkQueueFamilyIndices QueueFamilyIndices = RequestQueueFamilies(GetPhysicalDevice());
+
+    // We will be recording a command buffer every frame, so we want to be able to reset and rerecord over it.
+    // Thus, we need to set the VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT flag bit for our command pool.
+
+    // Command buffers are executed by submitting them on one of the device queues, like the graphics and presentation queues we retrieved.
+    // Each command pool can only allocate command buffers that are submitted on a single type of queue.
+
+    // Create the command pool
+    VkCommandPoolCreateInfo CreateInfo{};
+    CreateInfo.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
+    CreateInfo.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT; // Allow command buffers to be rerecorded individually
+    CreateInfo.queueFamilyIndex = QueueFamilyIndices.GraphicsFamily.value();
+
+    VkResult Result = vkCreateCommandPool(GetLogicalDevice(), &CreateInfo, nullptr, &CommandPool);
+    RK_ENGINE_ASSERT(Result == VK_SUCCESS, "Failed to create command pool.");
+
+    // Allocate multiple command buffers
+    CommandBuffers.resize(MAX_FRAMES_IN_FLIGHT);
+
+    VkCommandBufferAllocateInfo AllocInfo{};
+    AllocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+    AllocInfo.commandPool = CommandPool;
+    AllocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY; // Can be submitted to a queue for execution
+    AllocInfo.commandBufferCount = static_cast<uint32_t>(CommandBuffers.size());
+
+    Result = vkAllocateCommandBuffers(GetLogicalDevice(), &AllocInfo, CommandBuffers.data());
+    RK_ENGINE_ASSERT(Result == VK_SUCCESS, "Failed to allocate command buffers from command pool.");
+}
+
+void RkVulkanRendererContext::CreateSynchronizationObjects()
+{
+    InFlightFences.resize(MAX_FRAMES_IN_FLIGHT);
+    ImageAvailableSemaphores.resize(MAX_FRAMES_IN_FLIGHT);
+    RenderFinishedSemaphores.resize(MAX_FRAMES_IN_FLIGHT);
+
+    VkSemaphoreCreateInfo SemaphoreCreateInfo{};
+    SemaphoreCreateInfo.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
+
+    VkFenceCreateInfo FenceCreateInfo{};
+    FenceCreateInfo.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
+    FenceCreateInfo.flags = VK_FENCE_CREATE_SIGNALED_BIT;
+
+    for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++)
+    {
+        VkResult Result = vkCreateSemaphore(GetLogicalDevice(), &SemaphoreCreateInfo, nullptr, &ImageAvailableSemaphores[i]);
+        RK_ENGINE_ASSERT(Result == VK_SUCCESS, "Failed to create synchronization object for one frame.");
+
+        Result = vkCreateSemaphore(GetLogicalDevice(), &SemaphoreCreateInfo, nullptr, &RenderFinishedSemaphores[i]);
+        RK_ENGINE_ASSERT(Result == VK_SUCCESS, "Failed to create synchronization object for one frame.");
+
+        Result = vkCreateFence(GetLogicalDevice(), &FenceCreateInfo, nullptr, &InFlightFences[i]);
+        RK_ENGINE_ASSERT(Result == VK_SUCCESS, "Failed to create synchronization object for one frame.");
+    }
+}
  
 RkSwapChainSupportDetails RkVulkanRendererContext::RequestSwapchainSupportDetails(VkPhysicalDevice PhysicalDevice)
 {
@@ -653,4 +744,93 @@ bool RkVulkanRendererContext::IsVulkanCapableDevice(VkPhysicalDevice PhysicalDev
     }
 
     return Indices.IsComplete() && bExtensionSupport && bSwapChainAdequate;
+}
+
+void RkVulkanRendererContext::Record(VkCommandBuffer CommandBuffer, uint32 ImageIndex)
+{
+    VkCommandBufferBeginInfo BufferBeginInfo{};
+    BufferBeginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+    BufferBeginInfo.flags = 0;
+    BufferBeginInfo.pInheritanceInfo = nullptr;
+
+    VkResult Result = vkBeginCommandBuffer(CommandBuffer, &BufferBeginInfo);
+    RK_ENGINE_ASSERT(Result == VK_SUCCESS, "Failed to allocate command buffer from command pool.");
+
+    VkRenderPassBeginInfo RenderPassBeginInfo{};
+    RenderPassBeginInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
+    RenderPassBeginInfo.renderPass = RenderPass;
+    RenderPassBeginInfo.framebuffer = SwapchainFramebuffers[ImageIndex];
+    RenderPassBeginInfo.renderArea.offset = { 0, 0 };
+    RenderPassBeginInfo.renderArea.extent = SwapchainExtent;
+
+    VkClearValue ClearColor = { { { 0.0f, 0.0f, 0.0f, 1.0f } } };
+    RenderPassBeginInfo.clearValueCount = 1;
+    RenderPassBeginInfo.pClearValues = &ClearColor;
+
+    vkCmdBeginRenderPass(CommandBuffer, &RenderPassBeginInfo, VK_SUBPASS_CONTENTS_INLINE);
+
+    vkCmdBindPipeline(CommandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, Pipeline);
+
+    VkViewport Viewport{};
+    Viewport.x = 0.0f;
+    Viewport.y = 0.0f;
+    Viewport.width = (float)SwapchainExtent.width;
+    Viewport.height = (float)SwapchainExtent.height;
+    Viewport.minDepth = 0.0f;
+    Viewport.maxDepth = 1.0f;
+    vkCmdSetViewport(CommandBuffer, 0, 1, &Viewport);
+
+    VkRect2D Scissor{};
+    Scissor.offset = { 0, 0 };
+    Scissor.extent = SwapchainExtent;
+    vkCmdSetScissor(CommandBuffer, 0, 1, &Scissor);
+
+    vkCmdDraw(CommandBuffer, 3, 1, 0, 0);
+
+    vkCmdEndRenderPass(CommandBuffer);
+
+    Result = vkEndCommandBuffer(CommandBuffer);
+    RK_ENGINE_ASSERT(Result == VK_SUCCESS, "Failed to record command buffer.");
+}
+
+void RkVulkanRendererContext::Draw()
+{
+    vkWaitForFences(GetLogicalDevice(), 1, &InFlightFences[CurrentFrame], VK_TRUE, UINT64_MAX);
+    vkResetFences(GetLogicalDevice(), 1, &InFlightFences[CurrentFrame]);
+
+    uint32_t ImageIndex = 0;
+    vkAcquireNextImageKHR(GetLogicalDevice(), Swapchain, UINT64_MAX, ImageAvailableSemaphores[CurrentFrame], VK_NULL_HANDLE, &ImageIndex);
+
+    vkResetCommandBuffer(CommandBuffers[CurrentFrame], /* VkCommandBufferResetFlagBits*/ 0);
+    Record(CommandBuffers[CurrentFrame], ImageIndex);
+
+    VkSemaphore SignalSemaphores[] = { RenderFinishedSemaphores[CurrentFrame] };
+    VkSemaphore WaitSemaphores[] = { ImageAvailableSemaphores[CurrentFrame] };
+    VkPipelineStageFlags WaitFlags[] = { VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT };
+    VkSwapchainKHR Swapchains[] = { Swapchain };
+
+    VkSubmitInfo SubmitInfo{};
+    SubmitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+    SubmitInfo.waitSemaphoreCount = 1;
+    SubmitInfo.pWaitSemaphores = WaitSemaphores;
+    SubmitInfo.pWaitDstStageMask = WaitFlags;
+    SubmitInfo.commandBufferCount = 1;
+    SubmitInfo.pCommandBuffers = &CommandBuffers[CurrentFrame];
+    SubmitInfo.signalSemaphoreCount = 1;
+    SubmitInfo.pSignalSemaphores = SignalSemaphores;
+
+    VkResult Result = vkQueueSubmit(GraphicsQueue, 1, &SubmitInfo, InFlightFences[CurrentFrame]);
+    RK_ENGINE_ASSERT(Result == VK_SUCCESS, "Failed to submit draw command buffer.");
+
+    VkPresentInfoKHR PresentInfo{};
+    PresentInfo.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
+    PresentInfo.waitSemaphoreCount = 1;
+    PresentInfo.pWaitSemaphores = SignalSemaphores;
+    PresentInfo.swapchainCount = 1;
+    PresentInfo.pSwapchains = Swapchains;
+    PresentInfo.pImageIndices = &ImageIndex;
+
+    vkQueuePresentKHR(PresentQueue, &PresentInfo);
+
+    CurrentFrame = (CurrentFrame + 1) % MAX_FRAMES_IN_FLIGHT;
 }

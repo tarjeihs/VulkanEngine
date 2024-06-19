@@ -79,6 +79,12 @@ public:
     inline VkPhysicalDevice GetPhysicalDevice() const { return PhysicalDevice; }
     inline VkDevice GetLogicalDevice() const { return LogicalDevice; }
 
+    // Records a single draw call to command buffer
+    void Record(VkCommandBuffer CommandBuffer, uint32 ImageIndex);
+
+    // Submits the recorded command buffer
+    void Draw();
+
 protected:
     void CreateInstance();
     void CreateSurfaceInterface();
@@ -88,6 +94,8 @@ protected:
     void CreateRenderPass();
     void CreateRenderPipeline();
     void CreateFramebuffer();
+    void CreateCommandPoolAndBuffer();
+    void CreateSynchronizationObjects();
 
     void SetupDebugMessenger(VkInstance Instance);
     void DestroyDebugMessenger(VkInstance Instance);
@@ -111,12 +119,14 @@ protected:
 private:
     VkPhysicalDevice PhysicalDevice;                                                // GPU
     VkDevice LogicalDevice;                                                         // Driver
-    
+
     VkQueue GraphicsQueue;
     VkQueue PresentQueue;
     VkSurfaceKHR SurfaceInterface;
     VkDebugUtilsMessengerEXT DebugMessenger;
-    
+
+    VkCommandPool CommandPool;                                                      // Manages memory that is used to store the buffers and allocates command buffers.
+
     VkRenderPass RenderPass;                                                        // Describes what attachments, subpasses and dependencies to use on the framebuffer.
 
     VkSwapchainKHR Swapchain;                                                       // Image 1: (On Display): Image is currently being shown on the screen. Image 2: (In the pipeline): GPU is currently rendering onto this image. Image 3: (Waiting) Image is ready and waiting.
@@ -126,9 +136,17 @@ private:
     VkPipelineLayout PipelineLayout;                                                // Connects the inputs a shader needs (like uniforms, push constants and descriptor sets) to the actual data sources.
     VkPipeline Pipeline;                                                            // A compiled (including shader stages, fixed-function stages, state objects, and pipeline layout) version of the shader code, ready to be executed by GPU.
 
+    std::vector<VkFence> InFlightFences;                                            // Wait for this fence before submitting new commands, reset the fence, and submit commands with the fence to be signaled when done.
+    std::vector<VkSemaphore> ImageAvailableSemaphores;                              // Signal the semaphore after acquiring an image and wait on it before rendering.
+    std::vector<VkSemaphore> RenderFinishedSemaphores;                              // Signal the semaphore after rendering is complete and wait on it before presenting the image.
+    
+    size_t CurrentFrame = 0;
+    const int MAX_FRAMES_IN_FLIGHT = 2;
+    
+    std::vector<VkCommandBuffer> CommandBuffers;
     std::vector<VkRenderPass> RenderPasses;
-    std::vector<VkImage> SwapchainImages;               
-    std::vector<VkFramebuffer> SwapchainFramebuffers;                                // Collection of image views used as attachments in ther render pass. Stores information such as RGBA(uint8) per pixel, Depth(float), Stencil(uint8)
+    std::vector<VkImage> SwapchainImages;           
+    std::vector<VkFramebuffer> SwapchainFramebuffers;                               // Collection of image views used as attachments in ther render pass. Stores information such as RGBA(uint8) per pixel, Depth(float), Stencil(uint8)
     std::vector<VkImageView> SwapchainImageViews;       
     std::vector<RkValidationLayer> ValidationLayers;
     std::vector<const char*> Extensions = { VK_KHR_SWAPCHAIN_EXTENSION_NAME };

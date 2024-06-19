@@ -7,6 +7,8 @@
 #include "Scene.h"
 #include "Window.h"
 #include "Platform/Vulkan/VulkanRenderer.h"
+#include "Platform/Vulkan/VulkanRendererContext.h"
+#include "Memory/Mem.h"
 #include "Platform/Windows/WindowsWindow.h"
 #include "Log.h"
 
@@ -39,6 +41,7 @@ void CEngine::Run()
         OnUpdate(Time.GetDeltaTime());
         Scene->Tick(Time.GetDeltaTime());
 
+        Cast<RkVulkanRendererContext>(Window->GetContext())->Draw();
         Renderer->BeginFrame();
         //for (CActor* Actor : Scene->GetActors())
         //{
