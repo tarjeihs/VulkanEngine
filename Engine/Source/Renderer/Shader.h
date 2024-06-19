@@ -16,6 +16,8 @@ enum EShaderType : uint8
 struct SShaderProgram
 {
 	VkPipelineShaderStageCreateInfo CreateInfo;
+
+	// Compiled SPIR-V bytecode
 	VkShaderModule ShaderModule;
 };
 

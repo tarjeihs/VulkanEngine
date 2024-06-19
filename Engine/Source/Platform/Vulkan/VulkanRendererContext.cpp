@@ -167,11 +167,17 @@ void RkVulkanRendererContext::Init()
     CreateSwapchain();
     CreateRenderPass();
     CreateRenderPipeline();
+    CreateFramebuffer();
 }
 
 void RkVulkanRendererContext::Destroy() 
 {
-    for (auto ImageView : SwapchainImagesView)
+    for (auto Framebuffer : SwapchainFramebuffers)
+    {
+        vkDestroyFramebuffer(GetLogicalDevice(), Framebuffer, nullptr);
+    }
+
+    for (auto ImageView : SwapchainImageViews)
     {
         vkDestroyImageView(LogicalDevice, ImageView, nullptr);
     }
@@ -303,7 +309,7 @@ void RkVulkanRendererContext::CreateLogicalDevice()
     RK_ENGINE_ASSERT(CreateLogicalDeviceResult == VK_SUCCESS, "Failed to create logical device.");
 
     vkGetDeviceQueue(LogicalDevice, QueueFamilyIndices.GraphicsFamily.value(), 0, &GraphicsQueue);
-    vkGetDeviceQueue(LogicalDevice, QueueFamilyIndices.PresentFamily.value(), 0, &GraphicsQueue);
+    vkGetDeviceQueue(LogicalDevice, QueueFamilyIndices.PresentFamily.value(), 0, &PresentQueue);
 }
 
 void RkVulkanRendererContext::CreateRenderPass()
@@ -397,7 +403,7 @@ void RkVulkanRendererContext::CreateSwapchain()
     SwapchainExtent = Extent;
 
     // To use any of the images in the swapchain, a VkImageView object is required (a readonly view into the image).
-    SwapchainImagesView.resize(ImageCount);
+    SwapchainImageViews.resize(ImageCount);
     for (size_t Idx = 0; Idx < ImageCount; Idx++)
     {
         VkImageViewCreateInfo ImageViewCreateInfo{};
@@ -420,7 +426,7 @@ void RkVulkanRendererContext::CreateSwapchain()
         ImageViewCreateInfo.subresourceRange.baseArrayLayer = 0;
         ImageViewCreateInfo.subresourceRange.layerCount = 1;
 
-        VkResult Result = vkCreateImageView(LogicalDevice, &ImageViewCreateInfo, nullptr, &SwapchainImagesView[Idx]);
+        VkResult Result = vkCreateImageView(LogicalDevice, &ImageViewCreateInfo, nullptr, &SwapchainImageViews[Idx]);
         RK_ENGINE_ASSERT(Result == VK_SUCCESS, "Failed to create image view.");
     }
 }
@@ -505,6 +511,7 @@ void RkVulkanRendererContext::CreateRenderPipeline()
     VkResult Result = vkCreatePipelineLayout(GetLogicalDevice(), &PipelineLayoutCreateInfo, nullptr, &PipelineLayout);
     RK_ENGINE_ASSERT(Result == VK_SUCCESS, "Failed to create Vulkan pipeline layout.");
 
+    // TODO: This is just for testing!
     RkShader Shader;
     Shader.Compile(RK_SHADERTYPE_VERTEXSHADER, L"../Shaders/SimpleShaderVert.hlsl", L"main", "vs_6_0");
     Shader.Compile(RK_SHADERTYPE_FRAGMENTSHADER, L"../Shaders/SimpleShaderFrag.hlsl", L"main", "ps_6_0");
@@ -538,6 +545,28 @@ void RkVulkanRendererContext::CreateRenderPipeline()
 
     // Perform Shader Module destruction and cleanup
     Shader.PostCompile();
+}
+
+void RkVulkanRendererContext::CreateFramebuffer()
+{
+    SwapchainFramebuffers.resize(SwapchainImageViews.size());
+
+    for (size_t Index = 0; Index < SwapchainImageViews.size(); Index++)
+    {
+        VkImageView Attachments[] = { SwapchainImageViews[Index] };
+
+        VkFramebufferCreateInfo CreateInfo{};
+        CreateInfo.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
+        CreateInfo.renderPass = RenderPass; // Specify what render pass to use
+        CreateInfo.attachmentCount = 1;
+        CreateInfo.pAttachments = Attachments;
+        CreateInfo.width = SwapchainExtent.width;
+        CreateInfo.height = SwapchainExtent.height;
+        CreateInfo.layers = 1;
+
+        VkResult Result = vkCreateFramebuffer(GetLogicalDevice(), &CreateInfo, nullptr, &SwapchainFramebuffers[Index]);
+        RK_ENGINE_ASSERT(Result == VK_SUCCESS, "Failed to create Vulkan framebuffer.");
+    }
 }
  
 RkSwapChainSupportDetails RkVulkanRendererContext::RequestSwapchainSupportDetails(VkPhysicalDevice PhysicalDevice)

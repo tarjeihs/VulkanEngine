@@ -87,6 +87,7 @@ protected:
     void CreateSwapchain();
     void CreateRenderPass();
     void CreateRenderPipeline();
+    void CreateFramebuffer();
 
     void SetupDebugMessenger(VkInstance Instance);
     void DestroyDebugMessenger(VkInstance Instance);
@@ -108,27 +109,27 @@ protected:
     bool IsVulkanCapableDevice(VkPhysicalDevice PhysicalDevice);
 
 private:
-    // GPU
-    VkPhysicalDevice PhysicalDevice;
-    
-    // Driver
-    VkDevice LogicalDevice;
+    VkPhysicalDevice PhysicalDevice;                                                // GPU
+    VkDevice LogicalDevice;                                                         // Driver
     
     VkQueue GraphicsQueue;
     VkQueue PresentQueue;
     VkSurfaceKHR SurfaceInterface;
     VkDebugUtilsMessengerEXT DebugMessenger;
-    VkSwapchainKHR Swapchain;
-    VkFormat SwapchainImageFormat;
-    VkExtent2D SwapchainExtent;
     
-    VkRenderPass RenderPass;
-    VkPipelineLayout PipelineLayout;
-    VkPipeline Pipeline;
+    VkRenderPass RenderPass;                                                        // Describes what attachments, subpasses and dependencies to use on the framebuffer.
+
+    VkSwapchainKHR Swapchain;                                                       // Image 1: (On Display): Image is currently being shown on the screen. Image 2: (In the pipeline): GPU is currently rendering onto this image. Image 3: (Waiting) Image is ready and waiting.
+    VkFormat SwapchainImageFormat;                                                  // Defines pixel format of the images in the swapchain. (Color format and Depth/Stencil format)
+    VkExtent2D SwapchainExtent;                                                     // Defines the width and height (in pixels) of the images in the swapchain.
+
+    VkPipelineLayout PipelineLayout;                                                // Connects the inputs a shader needs (like uniforms, push constants and descriptor sets) to the actual data sources.
+    VkPipeline Pipeline;                                                            // A compiled (including shader stages, fixed-function stages, state objects, and pipeline layout) version of the shader code, ready to be executed by GPU.
 
     std::vector<VkRenderPass> RenderPasses;
-    std::vector<VkImage> SwapchainImages;
-    std::vector<VkImageView> SwapchainImagesView;
+    std::vector<VkImage> SwapchainImages;               
+    std::vector<VkFramebuffer> SwapchainFramebuffers;                                // Collection of image views used as attachments in ther render pass. Stores information such as RGBA(uint8) per pixel, Depth(float), Stencil(uint8)
+    std::vector<VkImageView> SwapchainImageViews;       
     std::vector<RkValidationLayer> ValidationLayers;
     std::vector<const char*> Extensions = { VK_KHR_SWAPCHAIN_EXTENSION_NAME };
 };
