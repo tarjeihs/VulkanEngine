@@ -445,7 +445,6 @@ RkQueueFamilyIndices RkVulkanRendererContext::RequestQueueFamilies(VkPhysicalDev
     return Indices;
 }
 
-// isDeviceSuitable + checkDeviceExtensionSupport
 bool RkVulkanRendererContext::IsVulkanCapableDevice(VkPhysicalDevice PhysicalDevice)
 {
     RkQueueFamilyIndices Indices = RequestQueueFamilies(PhysicalDevice);

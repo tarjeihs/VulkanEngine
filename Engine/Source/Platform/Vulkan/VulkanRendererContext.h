@@ -53,6 +53,8 @@ public:
     virtual void Init() override;
     virtual void Destroy() override;
 
+    inline VkDevice GetLogicalDevice() const { return LogicalDevice; }
+
 protected:
     void CreateInstance();
     void CreateSurfaceInterface();

@@ -24,11 +24,13 @@ file(GLOB_RECURSE ENGINE_FILES
 # Define source groups for Engine
 source_group(TREE ${CMAKE_CURRENT_SOURCE_DIR}/Engine/Source PREFIX "Files" FILES ${ENGINE_FILES})
 
-# Find Vulkan, glfw, and glm
+# Find Vulkan, glfw, glm, spdlog and DXC
 find_package(Vulkan REQUIRED)
 find_package(glfw3 CONFIG REQUIRED)
 find_package(glm CONFIG REQUIRED)
 find_package(spdlog CONFIG REQUIRED)
+find_package(spdlog CONFIG REQUIRED)
+find_package(directx-dxc CONFIG REQUIRED)
 
 # Engine project
 add_library(Engine STATIC ${ENGINE_FILES})
@@ -43,6 +45,7 @@ target_link_libraries(Engine PRIVATE
     glm::glm
     Vulkan::Vulkan
     spdlog::spdlog_header_only
+    Microsoft::DirectXShaderCompiler
 )
 
 target_compile_definitions(Engine PRIVATE

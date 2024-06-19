@@ -54,6 +54,11 @@ public:
     
     virtual bool ShouldClose() const = 0;
 
+    inline CRendererContext* GetContext() const
+    {
+        return RendererContext;
+    }
+
     inline void* GetNativeWindow() const
     {
         return WindowHandle;
