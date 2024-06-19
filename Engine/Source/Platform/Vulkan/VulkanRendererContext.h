@@ -62,14 +62,19 @@ struct RkSwapChainSupportDetails
     std::vector<VkPresentModeKHR> PresentMode;
 };
 
-/*
- *   Shader stages : the shader modules that define the functionality of the programmable stages of the graphics pipeline
- *   Fixed - function state : all of the structures that define the fixed - function stages of the pipeline, like input assembly, rasterizer, viewport and color blending
- *   Pipeline layout : the uniform and push values referenced by the shader that can be updated at draw time
- *   Render pass : the attachments referenced by the pipeline stages and their usage
- *
- *   All of these combined fully define the functionality of the graphics pipeline
-*/
+// With 2 frames in flight, the CPU and the GPU can be working on their own tasks at the same time. 
+// If the CPU finishes early, it will wait till the GPU finishes rendering before submitting more work. 
+// With 3 or more frames in flight, the CPU could get ahead of the GPU, adding frames of latency
+static constexpr int MAX_FRAMES_IN_FLIGHT = 2;
+
+ /*   
+  *   Shader stages : the shader modules that define the functionality of the programmable stages of the graphics pipeline
+  *   Fixed - function state : all of the structures that define the fixed - function stages of the pipeline, like input assembly, rasterizer, viewport and color blending
+  *   Pipeline layout : the uniform and push values referenced by the shader that can be updated at draw time
+  *   Render pass : the attachments referenced by the pipeline stages and their usage
+  *
+  *   All of these combined fully define the functionality of the graphics pipeline
+  **/
 class RkVulkanRendererContext : public CRendererContext
 {    
 public:
@@ -85,6 +90,12 @@ public:
     // Submits the recorded command buffer
     void Draw();
 
+    // Recreates the entire swapchain (swapchains, framebuffers, image views)
+    void RegenerateSwapchain();
+
+    // Loops until window regains focus
+    void AwaitFocus();
+
 protected:
     void CreateInstance();
     void CreateSurfaceInterface();
@@ -93,9 +104,10 @@ protected:
     void CreateSwapchain();
     void CreateRenderPass();
     void CreateRenderPipeline();
-    void CreateFramebuffer();
+    void CreateFramebuffers();
     void CreateCommandPoolAndBuffer();
     void CreateSynchronizationObjects();
+
 
     void SetupDebugMessenger(VkInstance Instance);
     void DestroyDebugMessenger(VkInstance Instance);
@@ -125,8 +137,6 @@ private:
     VkSurfaceKHR SurfaceInterface;
     VkDebugUtilsMessengerEXT DebugMessenger;
 
-    VkCommandPool CommandPool;                                                      // Manages memory that is used to store the buffers and allocates command buffers.
-
     VkRenderPass RenderPass;                                                        // Describes what attachments, subpasses and dependencies to use on the framebuffer.
 
     VkSwapchainKHR Swapchain;                                                       // Image 1: (On Display): Image is currently being shown on the screen. Image 2: (In the pipeline): GPU is currently rendering onto this image. Image 3: (Waiting) Image is ready and waiting.
@@ -136,18 +146,18 @@ private:
     VkPipelineLayout PipelineLayout;                                                // Connects the inputs a shader needs (like uniforms, push constants and descriptor sets) to the actual data sources.
     VkPipeline Pipeline;                                                            // A compiled (including shader stages, fixed-function stages, state objects, and pipeline layout) version of the shader code, ready to be executed by GPU.
 
+    size_t CurrentFrame = 0;
+    VkCommandPool CommandPool;                                                      // Manages memory that is used to store the buffers and allocates command buffers.
     std::vector<VkFence> InFlightFences;                                            // Wait for this fence before submitting new commands, reset the fence, and submit commands with the fence to be signaled when done.
     std::vector<VkSemaphore> ImageAvailableSemaphores;                              // Signal the semaphore after acquiring an image and wait on it before rendering.
     std::vector<VkSemaphore> RenderFinishedSemaphores;                              // Signal the semaphore after rendering is complete and wait on it before presenting the image.
-    
-    size_t CurrentFrame = 0;
-    const int MAX_FRAMES_IN_FLIGHT = 2;
-    
     std::vector<VkCommandBuffer> CommandBuffers;
+    
     std::vector<VkRenderPass> RenderPasses;
     std::vector<VkImage> SwapchainImages;           
     std::vector<VkFramebuffer> SwapchainFramebuffers;                               // Collection of image views used as attachments in ther render pass. Stores information such as RGBA(uint8) per pixel, Depth(float), Stencil(uint8)
-    std::vector<VkImageView> SwapchainImageViews;       
+    std::vector<VkImageView> SwapchainImageViews;
+
     std::vector<RkValidationLayer> ValidationLayers;
     std::vector<const char*> Extensions = { VK_KHR_SWAPCHAIN_EXTENSION_NAME };
 };

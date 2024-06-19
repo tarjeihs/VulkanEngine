@@ -38,6 +38,8 @@ protected:
 
     void* WindowHandle = nullptr;
 
+    bool bMinimized = false;
+
 public:
     CWindow(const SWindowSpecification& InSpecification)
         : Specification(InSpecification)
@@ -77,6 +79,16 @@ public:
     uint32 GetHeight() const
     {
         return Specification.Height;
+    }
+
+    inline bool IsMinimized() const
+    {
+        return bMinimized;
+    }
+
+    inline void SetIsMinimized(bool bValue)
+    {
+        bMinimized = bValue;
     }
 };
 

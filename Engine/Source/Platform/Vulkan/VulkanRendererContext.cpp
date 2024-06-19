@@ -167,7 +167,7 @@ void RkVulkanRendererContext::Init()
     CreateSwapchain();
     CreateRenderPass();
     CreateRenderPipeline();
-    CreateFramebuffer();
+    CreateFramebuffers();
     CreateCommandPoolAndBuffer();
     CreateSynchronizationObjects();
 }
@@ -176,23 +176,6 @@ void RkVulkanRendererContext::Destroy()
 {
     // Wait until safe to access async
     vkDeviceWaitIdle(GetLogicalDevice());
-
-    for (auto Semaphore : RenderFinishedSemaphores)
-    {
-        vkDestroySemaphore(GetLogicalDevice(), Semaphore, nullptr);
-    }
-
-    for (auto Semaphore : ImageAvailableSemaphores)
-    {
-        vkDestroySemaphore(GetLogicalDevice(), Semaphore, nullptr);
-    }
-
-    for (auto InFlightFence : InFlightFences)
-    {
-        vkDestroyFence(GetLogicalDevice(), InFlightFence, nullptr);
-    }
-
-    vkDestroyCommandPool(GetLogicalDevice(), CommandPool, nullptr);
 
     for (auto Framebuffer : SwapchainFramebuffers)
     {
@@ -203,11 +186,20 @@ void RkVulkanRendererContext::Destroy()
     {
         vkDestroyImageView(LogicalDevice, ImageView, nullptr);
     }
-
-    vkDestroyRenderPass(LogicalDevice, RenderPass, nullptr);
+    
+    vkDestroySwapchainKHR(LogicalDevice, Swapchain, nullptr);
     vkDestroyPipeline(LogicalDevice, Pipeline, nullptr);
     vkDestroyPipelineLayout(LogicalDevice, PipelineLayout, nullptr);
-    vkDestroySwapchainKHR(LogicalDevice, Swapchain, nullptr);
+
+    for (size_t Index = 0; Index < MAX_FRAMES_IN_FLIGHT; Index++)
+    {
+        vkDestroySemaphore(GetLogicalDevice(), RenderFinishedSemaphores[Index], nullptr);
+        vkDestroySemaphore(GetLogicalDevice(), ImageAvailableSemaphores[Index], nullptr);
+        vkDestroyFence(GetLogicalDevice(), InFlightFences[Index], nullptr);
+    }
+
+    vkDestroyCommandPool(GetLogicalDevice(), CommandPool, nullptr);
+    vkDestroyRenderPass(LogicalDevice, RenderPass, nullptr);
     vkDestroyDevice(LogicalDevice, nullptr);
     vkDestroySurfaceKHR((VkInstance)ContextHandle, SurfaceInterface, nullptr);
     DestroyDebugMessenger((VkInstance)ContextHandle);
@@ -580,7 +572,7 @@ void RkVulkanRendererContext::CreateRenderPipeline()
     Shader.PostCompile();
 }
 
-void RkVulkanRendererContext::CreateFramebuffer()
+void RkVulkanRendererContext::CreateFramebuffers()
 {
     SwapchainFramebuffers.resize(SwapchainImageViews.size());
 
@@ -658,6 +650,32 @@ void RkVulkanRendererContext::CreateSynchronizationObjects()
         Result = vkCreateFence(GetLogicalDevice(), &FenceCreateInfo, nullptr, &InFlightFences[i]);
         RK_ENGINE_ASSERT(Result == VK_SUCCESS, "Failed to create synchronization object for one frame.");
     }
+}
+
+void RkVulkanRendererContext::RegenerateSwapchain()
+{
+    vkDeviceWaitIdle(GetLogicalDevice());
+
+    while (GetWindow()->IsMinimized())
+    {
+        // Rough handling of window minimization.
+        glfwWaitEvents();
+    }
+
+    for (size_t i = 0; i < SwapchainFramebuffers.size(); i++)
+    {
+        vkDestroyFramebuffer(GetLogicalDevice(), SwapchainFramebuffers[i], nullptr);
+    }
+
+    for (size_t i = 0; i < SwapchainImageViews.size(); i++)
+    {
+        vkDestroyImageView(GetLogicalDevice(), SwapchainImageViews[i], nullptr);
+    }
+
+    vkDestroySwapchainKHR(GetLogicalDevice(), Swapchain, nullptr);
+
+    CreateSwapchain();
+    CreateFramebuffers();
 }
  
 RkSwapChainSupportDetails RkVulkanRendererContext::RequestSwapchainSupportDetails(VkPhysicalDevice PhysicalDevice)
@@ -763,7 +781,7 @@ void RkVulkanRendererContext::Record(VkCommandBuffer CommandBuffer, uint32 Image
     RenderPassBeginInfo.renderArea.offset = { 0, 0 };
     RenderPassBeginInfo.renderArea.extent = SwapchainExtent;
 
-    VkClearValue ClearColor = { { { 0.0f, 0.0f, 0.0f, 1.0f } } };
+    VkClearValue ClearColor = { { { 0.01f, 0.01f, 0.01f, 1.0f } } };
     RenderPassBeginInfo.clearValueCount = 1;
     RenderPassBeginInfo.pClearValues = &ClearColor;
 
@@ -796,10 +814,16 @@ void RkVulkanRendererContext::Record(VkCommandBuffer CommandBuffer, uint32 Image
 void RkVulkanRendererContext::Draw()
 {
     vkWaitForFences(GetLogicalDevice(), 1, &InFlightFences[CurrentFrame], VK_TRUE, UINT64_MAX);
-    vkResetFences(GetLogicalDevice(), 1, &InFlightFences[CurrentFrame]);
 
     uint32_t ImageIndex = 0;
-    vkAcquireNextImageKHR(GetLogicalDevice(), Swapchain, UINT64_MAX, ImageAvailableSemaphores[CurrentFrame], VK_NULL_HANDLE, &ImageIndex);
+    VkResult Result = vkAcquireNextImageKHR(GetLogicalDevice(), Swapchain, UINT64_MAX, ImageAvailableSemaphores[CurrentFrame], VK_NULL_HANDLE, &ImageIndex);
+    if (Result == VK_ERROR_OUT_OF_DATE_KHR)
+    {
+        RegenerateSwapchain();
+        return;
+    }
+    
+    vkResetFences(GetLogicalDevice(), 1, &InFlightFences[CurrentFrame]);
 
     vkResetCommandBuffer(CommandBuffers[CurrentFrame], /* VkCommandBufferResetFlagBits*/ 0);
     Record(CommandBuffers[CurrentFrame], ImageIndex);
@@ -819,7 +843,8 @@ void RkVulkanRendererContext::Draw()
     SubmitInfo.signalSemaphoreCount = 1;
     SubmitInfo.pSignalSemaphores = SignalSemaphores;
 
-    VkResult Result = vkQueueSubmit(GraphicsQueue, 1, &SubmitInfo, InFlightFences[CurrentFrame]);
+    // Enqueue 
+    Result = vkQueueSubmit(GraphicsQueue, 1, &SubmitInfo, InFlightFences[CurrentFrame]);
     RK_ENGINE_ASSERT(Result == VK_SUCCESS, "Failed to submit draw command buffer.");
 
     VkPresentInfoKHR PresentInfo{};
@@ -830,7 +855,11 @@ void RkVulkanRendererContext::Draw()
     PresentInfo.pSwapchains = Swapchains;
     PresentInfo.pImageIndices = &ImageIndex;
 
-    vkQueuePresentKHR(PresentQueue, &PresentInfo);
+    Result = vkQueuePresentKHR(PresentQueue, &PresentInfo);
+    if (Result == VK_ERROR_OUT_OF_DATE_KHR || Result == VK_SUBOPTIMAL_KHR)
+    {
+        RegenerateSwapchain();
+    }
 
     CurrentFrame = (CurrentFrame + 1) % MAX_FRAMES_IN_FLIGHT;
 }
