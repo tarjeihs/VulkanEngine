@@ -9,6 +9,21 @@
 #include "Math/MathTypes.h"
 #include "Core/Assert.h"
 
+//enum ERenderPipelineType
+//{
+//    // A standard pipeline for rendering directly to the screen.
+//    ForwardRenderingPipeline,
+//
+//    // A pipeline that separates geometry processing from lighting calculations to improve performance in scenes with many lights.
+//    DeferredRenderingPipeline,
+//
+//    // A pipeline for applying effects like bloom, tone mapping, and anti - aliasing after the main rendering pass.
+//    PostProcessingPipeline,
+//
+//    // A pipeline dedicated to rendering shadow maps for shadow calculations.
+//    ShadowMappingPipeline
+//};
+
 class RkValidationLayer
 {
 public:
@@ -47,12 +62,21 @@ struct RkSwapChainSupportDetails
     std::vector<VkPresentModeKHR> PresentMode;
 };
 
+/*
+ *   Shader stages : the shader modules that define the functionality of the programmable stages of the graphics pipeline
+ *   Fixed - function state : all of the structures that define the fixed - function stages of the pipeline, like input assembly, rasterizer, viewport and color blending
+ *   Pipeline layout : the uniform and push values referenced by the shader that can be updated at draw time
+ *   Render pass : the attachments referenced by the pipeline stages and their usage
+ *
+ *   All of these combined fully define the functionality of the graphics pipeline
+*/
 class RkVulkanRendererContext : public CRendererContext
 {    
 public:
     virtual void Init() override;
     virtual void Destroy() override;
 
+    inline VkPhysicalDevice GetPhysicalDevice() const { return PhysicalDevice; }
     inline VkDevice GetLogicalDevice() const { return LogicalDevice; }
 
 protected:
@@ -61,6 +85,8 @@ protected:
     void CreatePhysicalDevice();
     void CreateLogicalDevice();
     void CreateSwapchain();
+    void CreateRenderPass();
+    void CreateRenderPipeline();
 
     void SetupDebugMessenger(VkInstance Instance);
     void DestroyDebugMessenger(VkInstance Instance);
@@ -82,18 +108,27 @@ protected:
     bool IsVulkanCapableDevice(VkPhysicalDevice PhysicalDevice);
 
 private:
-    VkQueue GraphicsQueue;
-    VkSurfaceKHR SurfaceInterface;
-    VkDevice LogicalDevice;
+    // GPU
     VkPhysicalDevice PhysicalDevice;
+    
+    // Driver
+    VkDevice LogicalDevice;
+    
+    VkQueue GraphicsQueue;
+    VkQueue PresentQueue;
+    VkSurfaceKHR SurfaceInterface;
     VkDebugUtilsMessengerEXT DebugMessenger;
     VkSwapchainKHR Swapchain;
     VkFormat SwapchainImageFormat;
     VkExtent2D SwapchainExtent;
+    
+    VkRenderPass RenderPass;
+    VkPipelineLayout PipelineLayout;
+    VkPipeline Pipeline;
 
+    std::vector<VkRenderPass> RenderPasses;
     std::vector<VkImage> SwapchainImages;
     std::vector<VkImageView> SwapchainImagesView;
-
     std::vector<RkValidationLayer> ValidationLayers;
     std::vector<const char*> Extensions = { VK_KHR_SWAPCHAIN_EXTENSION_NAME };
 };

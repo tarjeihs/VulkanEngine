@@ -42,7 +42,6 @@ public:
     TArray<CRenderCommand> Commands;
 };
 
-
 class CRenderer
 {
 public:
@@ -57,5 +56,4 @@ public:
 
 protected:
     CRenderQueue RenderQueue;
-    class CRenderPipeline* RenderPipeline;
 };

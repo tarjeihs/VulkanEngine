@@ -9,10 +9,12 @@
 #include <GLFW/glfw3.h>
 #include <GLFW/glfw3native.h>
 #include <vulkan/vulkan_core.h>
+#include <algorithm>  // for std::transform
 
 #include "Core/Assert.h"
 #include "Core/Window.h"
 #include "Math/Math.h"
+#include "Renderer/Shader.h"
 
 namespace Utils
 {
@@ -163,6 +165,8 @@ void RkVulkanRendererContext::Init()
     CreatePhysicalDevice();
     CreateLogicalDevice();
     CreateSwapchain();
+    CreateRenderPass();
+    CreateRenderPipeline();
 }
 
 void RkVulkanRendererContext::Destroy() 
@@ -171,10 +175,12 @@ void RkVulkanRendererContext::Destroy()
     {
         vkDestroyImageView(LogicalDevice, ImageView, nullptr);
     }
-
+    vkDestroyRenderPass(LogicalDevice, RenderPass, nullptr);
+    vkDestroyPipeline(LogicalDevice, Pipeline, nullptr);
+    vkDestroyPipelineLayout(LogicalDevice, PipelineLayout, nullptr);
     vkDestroySwapchainKHR(LogicalDevice, Swapchain, nullptr);
-    vkDestroySurfaceKHR((VkInstance)ContextHandle, SurfaceInterface, nullptr);
     vkDestroyDevice(LogicalDevice, nullptr);
+    vkDestroySurfaceKHR((VkInstance)ContextHandle, SurfaceInterface, nullptr);
     DestroyDebugMessenger((VkInstance)ContextHandle);
     vkDestroyInstance((VkInstance)ContextHandle, nullptr);
 }
@@ -300,6 +306,38 @@ void RkVulkanRendererContext::CreateLogicalDevice()
     vkGetDeviceQueue(LogicalDevice, QueueFamilyIndices.PresentFamily.value(), 0, &GraphicsQueue);
 }
 
+void RkVulkanRendererContext::CreateRenderPass()
+{
+    VkAttachmentDescription ColorAttachment{};
+    ColorAttachment.format = SwapchainImageFormat;
+    ColorAttachment.samples = VK_SAMPLE_COUNT_1_BIT;
+    ColorAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+    ColorAttachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+    ColorAttachment.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+    ColorAttachment.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+    ColorAttachment.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+    ColorAttachment.finalLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+
+    VkAttachmentReference ColorAttachmentRef{};
+    ColorAttachmentRef.attachment = 0;
+    ColorAttachmentRef.layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+
+    VkSubpassDescription Subpass{};
+    Subpass.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
+    Subpass.colorAttachmentCount = 1;
+    Subpass.pColorAttachments = &ColorAttachmentRef;
+
+    VkRenderPassCreateInfo CreateInfo{};
+    CreateInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
+    CreateInfo.attachmentCount = 1;
+    CreateInfo.pAttachments = &ColorAttachment;
+    CreateInfo.subpassCount = 1;
+    CreateInfo.pSubpasses = &Subpass;
+
+    VkResult Result = vkCreateRenderPass(GetLogicalDevice(), &CreateInfo, nullptr, &RenderPass);
+    RK_ENGINE_ASSERT(Result == VK_SUCCESS, "Failed to create render pass.");
+}
+
 void RkVulkanRendererContext::CreateSwapchain()
 {
     RkSwapChainSupportDetails SwapchainSupport = RequestSwapchainSupportDetails(PhysicalDevice);
@@ -385,6 +423,121 @@ void RkVulkanRendererContext::CreateSwapchain()
         VkResult Result = vkCreateImageView(LogicalDevice, &ImageViewCreateInfo, nullptr, &SwapchainImagesView[Idx]);
         RK_ENGINE_ASSERT(Result == VK_SUCCESS, "Failed to create image view.");
     }
+}
+
+void RkVulkanRendererContext::CreateRenderPipeline()
+{
+    // Configure the pipeline states explicitly as it will be baked into an immutable pipeline state object. 
+
+    // Format of vertex data passed into vertex shader
+    VkPipelineVertexInputStateCreateInfo VertexInputCreateInfo{};
+    VertexInputCreateInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
+    VertexInputCreateInfo.vertexBindingDescriptionCount = 0;
+    VertexInputCreateInfo.vertexAttributeDescriptionCount = 0;
+
+    // NOTE: Without an index buffer(IBO), we cannot perform optimizations like reusing vertices.
+    // Geometry topology and primitive restart
+    VkPipelineInputAssemblyStateCreateInfo InputAssemblyCreateInfo{};
+    InputAssemblyCreateInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
+    InputAssemblyCreateInfo.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST; // Triangle from every 3 vertices without reuse
+    InputAssemblyCreateInfo.primitiveRestartEnable = VK_FALSE;
+
+    // Describes the region of the framebuffer that the output will be rendered to.
+    VkPipelineViewportStateCreateInfo ViewportCreateInfo{};
+    ViewportCreateInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO;
+    ViewportCreateInfo.viewportCount = 1;
+    ViewportCreateInfo.scissorCount = 1;
+
+    VkPipelineRasterizationStateCreateInfo RasterizerCreateInfo{};
+    RasterizerCreateInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO;
+    RasterizerCreateInfo.depthClampEnable = VK_FALSE;
+    RasterizerCreateInfo.rasterizerDiscardEnable = VK_FALSE;
+    RasterizerCreateInfo.polygonMode = VK_POLYGON_MODE_FILL; // Determines how fragments are generated on the geometry. VK_POLYGON_MODE_FILL will fill the area of the polygon with fragments.
+    RasterizerCreateInfo.lineWidth = 1.0f; // Thickness of lines in terms of number of fragments.
+    RasterizerCreateInfo.cullMode = VK_CULL_MODE_BACK_BIT;
+    RasterizerCreateInfo.frontFace = VK_FRONT_FACE_CLOCKWISE; // Vertex order for faces to be considered front-facing.
+    RasterizerCreateInfo.depthBiasEnable = VK_FALSE;
+
+    // Anti-aliasing
+    VkPipelineMultisampleStateCreateInfo MultisampleCreateInfo{};
+    MultisampleCreateInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
+    MultisampleCreateInfo.sampleShadingEnable = VK_FALSE;
+    MultisampleCreateInfo.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
+
+    // After a fragment shader has returned a color, it needs to be combined with the color that is already in the framebuffer.
+    // Blending the new color with the old color based on its opacity. (Alpha blending)
+    VkPipelineColorBlendAttachmentState ColorBlendAttachment{};
+    ColorBlendAttachment.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
+    ColorBlendAttachment.blendEnable = VK_TRUE;
+    ColorBlendAttachment.srcColorBlendFactor = VK_BLEND_FACTOR_SRC_ALPHA;
+    ColorBlendAttachment.dstColorBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+    ColorBlendAttachment.colorBlendOp = VK_BLEND_OP_ADD;
+    ColorBlendAttachment.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
+    ColorBlendAttachment.dstAlphaBlendFactor = VK_BLEND_FACTOR_ZERO;
+    ColorBlendAttachment.alphaBlendOp = VK_BLEND_OP_ADD;
+
+    VkPipelineColorBlendStateCreateInfo ColorBlendCreateInfo{};
+    ColorBlendCreateInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
+    ColorBlendCreateInfo.logicOpEnable = VK_FALSE;
+    ColorBlendCreateInfo.logicOp = VK_LOGIC_OP_COPY;
+    ColorBlendCreateInfo.attachmentCount = 1;
+    ColorBlendCreateInfo.pAttachments = &ColorBlendAttachment;
+    ColorBlendCreateInfo.blendConstants[0] = 0.0f;
+    ColorBlendCreateInfo.blendConstants[1] = 0.0f;
+    ColorBlendCreateInfo.blendConstants[2] = 0.0f;
+    ColorBlendCreateInfo.blendConstants[3] = 0.0f;
+
+    const std::vector<VkDynamicState> DynamicStates = {
+        VK_DYNAMIC_STATE_VIEWPORT,
+        VK_DYNAMIC_STATE_SCISSOR
+    };
+
+    VkPipelineDynamicStateCreateInfo DynamicStateCreateInfo{};
+    DynamicStateCreateInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO;
+    DynamicStateCreateInfo.dynamicStateCount = static_cast<uint32>(DynamicStates.size());
+    DynamicStateCreateInfo.pDynamicStates = DynamicStates.data();
+
+    VkPipelineLayoutCreateInfo PipelineLayoutCreateInfo{};
+    PipelineLayoutCreateInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
+    PipelineLayoutCreateInfo.setLayoutCount = 0;
+    PipelineLayoutCreateInfo.pushConstantRangeCount = 0;
+
+    VkResult Result = vkCreatePipelineLayout(GetLogicalDevice(), &PipelineLayoutCreateInfo, nullptr, &PipelineLayout);
+    RK_ENGINE_ASSERT(Result == VK_SUCCESS, "Failed to create Vulkan pipeline layout.");
+
+    RkShader Shader;
+    Shader.Compile(RK_SHADERTYPE_VERTEXSHADER, L"../Shaders/SimpleShaderVert.hlsl", L"main", "vs_6_0");
+    Shader.Compile(RK_SHADERTYPE_FRAGMENTSHADER, L"../Shaders/SimpleShaderFrag.hlsl", L"main", "ps_6_0");
+
+    // Copy shader create info seperate vector
+    std::vector<VkPipelineShaderStageCreateInfo> ShaderStageCreateInfos(Shader.ShaderPrograms.size());
+    std::transform(Shader.ShaderPrograms.begin(), Shader.ShaderPrograms.end(), ShaderStageCreateInfos.begin(), [](const SShaderProgram& shaderProgram)
+    {
+        return shaderProgram.CreateInfo;
+    });
+
+    // Pipeline configuration
+    VkGraphicsPipelineCreateInfo PipelineCreateInfo{};
+    PipelineCreateInfo.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
+    PipelineCreateInfo.stageCount = static_cast<uint32>(ShaderStageCreateInfos.size());
+    PipelineCreateInfo.pStages = ShaderStageCreateInfos.data();
+    PipelineCreateInfo.pVertexInputState = &VertexInputCreateInfo;
+    PipelineCreateInfo.pInputAssemblyState = &InputAssemblyCreateInfo;
+    PipelineCreateInfo.pViewportState = &ViewportCreateInfo;
+    PipelineCreateInfo.pRasterizationState = &RasterizerCreateInfo;
+    PipelineCreateInfo.pMultisampleState = &MultisampleCreateInfo;
+    PipelineCreateInfo.pColorBlendState = &ColorBlendCreateInfo;
+    PipelineCreateInfo.pDynamicState = &DynamicStateCreateInfo;
+    PipelineCreateInfo.layout = PipelineLayout;
+    PipelineCreateInfo.renderPass = RenderPass;
+    PipelineCreateInfo.subpass = 0;
+    PipelineCreateInfo.basePipelineHandle = VK_NULL_HANDLE;
+
+    Result = vkCreateGraphicsPipelines(GetLogicalDevice(), VK_NULL_HANDLE, 1, &PipelineCreateInfo, nullptr, &Pipeline);
+    RK_ENGINE_ASSERT(Result == VK_SUCCESS, "Failed to create Vulkan pipeline.");
+
+    // Perform Shader Module destruction and cleanup
+    Shader.PostCompile();
 }
  
 RkSwapChainSupportDetails RkVulkanRendererContext::RequestSwapchainSupportDetails(VkPhysicalDevice PhysicalDevice)

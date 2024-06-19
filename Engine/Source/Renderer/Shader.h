@@ -6,21 +6,24 @@
 
 #include "Math/MathTypes.h"
 
-enum class EShaderType : uint8
+enum EShaderType : uint8
 {
-	None = 0,
-	
-	VertexShader,
+	RK_SHADERTYPE_NONE = 0,
+	RK_SHADERTYPE_VERTEXSHADER,
+	RK_SHADERTYPE_FRAGMENTSHADER
+};
 
-	FragmentShader
+struct SShaderProgram
+{
+	VkPipelineShaderStageCreateInfo CreateInfo;
+	VkShaderModule ShaderModule;
 };
 
 class RkShader
 {
 public:
 	void Compile(EShaderType ShaderType, const std::wstring& ShaderSourcePath, const std::wstring& Entrypoint, const std::string& TargetProfile);
-	void Cleanup();
+	void PostCompile();
 
-private:
-	std::unordered_map<EShaderType, VkShaderModule> ShaderModules;
+	std::vector<SShaderProgram> ShaderPrograms;
 };

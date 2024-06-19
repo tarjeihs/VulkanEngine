@@ -87,25 +87,27 @@ void RkShader::Compile(EShaderType ShaderType, const std::wstring& ShaderSourceP
     VkResult Result = vkCreateShaderModule(RendererContext->GetLogicalDevice(), &CreateInfo, nullptr, &ShaderModule);
     RK_ENGINE_ASSERT(Result == VK_SUCCESS, "Failed to create Shader Module.");
 
-    // TODO: Currently not doing anything with this CreateInfo.
     VkPipelineShaderStageCreateInfo ShaderCreateInfo{};
     ShaderCreateInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
     ShaderCreateInfo.pName = "main";
+    ShaderCreateInfo.module = ShaderModule;
 
     switch (ShaderType)
     {
-        case EShaderType::VertexShader: { ShaderCreateInfo.stage = VK_SHADER_STAGE_VERTEX_BIT; break; }
-        case EShaderType::FragmentShader: { ShaderCreateInfo.stage = VK_SHADER_STAGE_FRAGMENT_BIT; break; }
+        case RK_SHADERTYPE_VERTEXSHADER:    { ShaderCreateInfo.stage = VK_SHADER_STAGE_VERTEX_BIT; break; }
+        case RK_SHADERTYPE_FRAGMENTSHADER:  { ShaderCreateInfo.stage = VK_SHADER_STAGE_FRAGMENT_BIT; break; }
     }
     
-    ShaderModules[ShaderType] = ShaderModule;
+    ShaderPrograms.push_back( { ShaderCreateInfo, ShaderModule } );
 }
 
-void RkShader::Cleanup()
+void RkShader::PostCompile()
 {
     RkVulkanRendererContext* RendererContext = Cast<RkVulkanRendererContext>(GetWindow()->GetContext());
-    for (const auto& Pair : ShaderModules)
+
+    for (const auto& ShaderStage : ShaderPrograms)
     {
-        vkDestroyShaderModule(RendererContext->GetLogicalDevice(), Pair.second, nullptr);
+        // Memory for this shader module can be freed. It has been internally copied by Vulkan.
+        vkDestroyShaderModule(RendererContext->GetLogicalDevice(), ShaderStage.ShaderModule, nullptr);
     }
 }
