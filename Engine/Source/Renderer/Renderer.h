@@ -48,10 +48,14 @@ class CRenderer
 public:
     virtual ~CRenderer() = default;
     
+    virtual void Init() = 0;
+    virtual void Cleanup() = 0;
+
     virtual void BeginFrame() = 0;
     //virtual void Submit(CMesh* Mesh, CMaterialInstance* MaterialInstance, const STransform& Transform) = 0;
     virtual void EndFrame() = 0;
 
 protected:
     CRenderQueue RenderQueue;
+    class CRenderPipeline* RenderPipeline;
 };

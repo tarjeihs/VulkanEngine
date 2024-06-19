@@ -2,7 +2,14 @@
 
 #include "Renderer/RendererPipeline.h"
 
-class RkVulkanRendererPipeline : public RkRendererPipeline
+#include <vulkan/vulkan.h>
+
+class CVulkanRenderPipeline : public CRenderPipeline
 {
-	
+public:
+	virtual void Init() override;
+	virtual void Teardown() override;
+
+private:
+	VkPipelineLayout Pipeline;
 };
