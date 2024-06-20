@@ -8,6 +8,7 @@
 # Do not ignore source, config and plugins dirs.
 !/Editor/**
 !/Engine/**
+!/Shaders/**
 
 !CMakeLists.txt
 !Build.bat

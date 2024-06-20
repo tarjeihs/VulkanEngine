@@ -15,6 +15,13 @@
 #include "Core/Window.h"
 #include "Math/Math.h"
 #include "Renderer/Shader.h"
+#include "Memory/Mem.h"
+
+std::vector<RkVertex> Vertices = {
+	{{0.0f, -0.5f}, {1.0f, 0.0f, 0.0f}},
+	{{0.5f, 0.5f}, {0.0f, 1.0f, 0.0f}},
+	{{-0.5f, 0.5f}, {0.0f, 0.0f, 1.0f}}
+};
 
 namespace Utils
 {
@@ -168,7 +175,7 @@ void RkVulkanRendererContext::Init()
     CreateRenderPass();
     CreateRenderPipeline();
     CreateFramebuffers();
-    CreateCommandPoolAndBuffer();
+    CreateBuffers();
     CreateSynchronizationObjects();
 }
 
@@ -190,6 +197,8 @@ void RkVulkanRendererContext::Destroy()
     vkDestroySwapchainKHR(LogicalDevice, Swapchain, nullptr);
     vkDestroyPipeline(LogicalDevice, Pipeline, nullptr);
     vkDestroyPipelineLayout(LogicalDevice, PipelineLayout, nullptr);
+    vkDestroyBuffer(LogicalDevice, VertexBuffer, nullptr);
+    vkFreeMemory(LogicalDevice, VertexBufferMemory, nullptr);
 
     for (size_t Index = 0; Index < MAX_FRAMES_IN_FLIGHT; Index++)
     {
@@ -460,11 +469,16 @@ void RkVulkanRendererContext::CreateRenderPipeline()
 {
     // Configure the pipeline states explicitly as it will be baked into an immutable pipeline state object. 
 
+    auto BindingDescription = RkVertex::DescribeBindingDescription();
+    auto AttributeDescription = RkVertex::DescribeAttributeDescription();
+
     // Format of vertex data passed into vertex shader
     VkPipelineVertexInputStateCreateInfo VertexInputCreateInfo{};
     VertexInputCreateInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
-    VertexInputCreateInfo.vertexBindingDescriptionCount = 0;
-    VertexInputCreateInfo.vertexAttributeDescriptionCount = 0;
+    VertexInputCreateInfo.vertexBindingDescriptionCount = 1;
+    VertexInputCreateInfo.vertexAttributeDescriptionCount = static_cast<uint32>(AttributeDescription.size());
+    VertexInputCreateInfo.pVertexBindingDescriptions = &BindingDescription;
+    VertexInputCreateInfo.pVertexAttributeDescriptions = AttributeDescription.data();
 
     // NOTE: Without an index buffer(IBO), we cannot perform optimizations like reusing vertices.
     // Geometry topology and primitive restart
@@ -594,35 +608,60 @@ void RkVulkanRendererContext::CreateFramebuffers()
     }
 }
 
-void RkVulkanRendererContext::CreateCommandPoolAndBuffer()
+void RkVulkanRendererContext::CreateBuffers()
 {
-    RkQueueFamilyIndices QueueFamilyIndices = RequestQueueFamilies(GetPhysicalDevice());
+    /* Vertex buffer creation */
+    VkBufferCreateInfo BufferInfo{};
+    BufferInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+    BufferInfo.size = sizeof(Vertices[0]) * Vertices.size(); // Size of buffer in bytes
+    BufferInfo.usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT;
+    BufferInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE; // Exclusively used from the graphics queue
+    VkResult Result = vkCreateBuffer(GetLogicalDevice(), &BufferInfo, nullptr, &VertexBuffer);
+	RK_ENGINE_ASSERT(Result == VK_SUCCESS, "Failed to create vertex buffer.");
+    
+    VkMemoryRequirements MemoryRequirements;
+    vkGetBufferMemoryRequirements(GetLogicalDevice(), VertexBuffer, &MemoryRequirements);
+
+    VkMemoryAllocateInfo MemoryAllocInfo{};
+    MemoryAllocInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+    MemoryAllocInfo.allocationSize = MemoryRequirements.size;
+    MemoryAllocInfo.memoryTypeIndex = FindMemoryType(MemoryRequirements.memoryTypeBits, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+    Result = vkAllocateMemory(GetLogicalDevice(), &MemoryAllocInfo, nullptr, &VertexBufferMemory);
+    RK_ENGINE_ASSERT(Result == VK_SUCCESS, "Failed to allocate memory for vertex buffer.");
+
+    vkBindBufferMemory(GetLogicalDevice(), VertexBuffer, VertexBufferMemory, 0);
+
+    void* Data;
+    vkMapMemory(GetLogicalDevice(), VertexBufferMemory, 0, BufferInfo.size, 0, &Data);
+    memcpy(Data, Vertices.data(), (size_t)BufferInfo.size);
+    vkUnmapMemory(GetLogicalDevice(), VertexBufferMemory);
 
     // We will be recording a command buffer every frame, so we want to be able to reset and rerecord over it.
     // Thus, we need to set the VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT flag bit for our command pool.
-
     // Command buffers are executed by submitting them on one of the device queues, like the graphics and presentation queues we retrieved.
     // Each command pool can only allocate command buffers that are submitted on a single type of queue.
 
-    // Create the command pool
+    RkQueueFamilyIndices QueueFamilyIndices = RequestQueueFamilies(GetPhysicalDevice());
+
+    /* Create the command pool */
     VkCommandPoolCreateInfo CreateInfo{};
     CreateInfo.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
     CreateInfo.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT; // Allow command buffers to be rerecorded individually
     CreateInfo.queueFamilyIndex = QueueFamilyIndices.GraphicsFamily.value();
 
-    VkResult Result = vkCreateCommandPool(GetLogicalDevice(), &CreateInfo, nullptr, &CommandPool);
+    Result = vkCreateCommandPool(GetLogicalDevice(), &CreateInfo, nullptr, &CommandPool);
     RK_ENGINE_ASSERT(Result == VK_SUCCESS, "Failed to create command pool.");
 
     // Allocate multiple command buffers
     CommandBuffers.resize(MAX_FRAMES_IN_FLIGHT);
 
-    VkCommandBufferAllocateInfo AllocInfo{};
-    AllocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
-    AllocInfo.commandPool = CommandPool;
-    AllocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY; // Can be submitted to a queue for execution
-    AllocInfo.commandBufferCount = static_cast<uint32_t>(CommandBuffers.size());
+    VkCommandBufferAllocateInfo CommandBufferAllocInfo{};
+    CommandBufferAllocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+    CommandBufferAllocInfo.commandPool = CommandPool;
+    CommandBufferAllocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY; // Can be submitted to a queue for execution
+    CommandBufferAllocInfo.commandBufferCount = static_cast<uint32_t>(CommandBuffers.size());
 
-    Result = vkAllocateCommandBuffers(GetLogicalDevice(), &AllocInfo, CommandBuffers.data());
+    Result = vkAllocateCommandBuffers(GetLogicalDevice(), &CommandBufferAllocInfo, CommandBuffers.data());
     RK_ENGINE_ASSERT(Result == VK_SUCCESS, "Failed to allocate command buffers from command pool.");
 }
 
@@ -764,6 +803,23 @@ bool RkVulkanRendererContext::IsVulkanCapableDevice(VkPhysicalDevice PhysicalDev
     return Indices.IsComplete() && bExtensionSupport && bSwapChainAdequate;
 }
 
+uint32 RkVulkanRendererContext::FindMemoryType(uint32 TypeFilter, VkMemoryPropertyFlags Properties)
+{
+    VkPhysicalDeviceMemoryProperties MemoryProperties;
+    vkGetPhysicalDeviceMemoryProperties(GetPhysicalDevice(), &MemoryProperties);
+
+    for (uint32 Index = 0; Index < MemoryProperties.memoryTypeCount; Index++)
+    {
+        if ((TypeFilter & (1 << Index)) && (MemoryProperties.memoryTypes[Index].propertyFlags & Properties) == Properties)
+        {
+            return Index;
+        }
+    }
+
+	RK_ENGINE_ASSERT(false, "Reached end of loop without any value to return.");
+    return 0;
+}
+
 void RkVulkanRendererContext::Record(VkCommandBuffer CommandBuffer, uint32 ImageIndex)
 {
     VkCommandBufferBeginInfo BufferBeginInfo{};
@@ -789,6 +845,11 @@ void RkVulkanRendererContext::Record(VkCommandBuffer CommandBuffer, uint32 Image
 
     vkCmdBindPipeline(CommandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, Pipeline);
 
+    VkBuffer VertexBuffers[] = { VertexBuffer };
+    VkDeviceSize Offsets[] = { 0 };
+
+    vkCmdBindVertexBuffers(CommandBuffer, 0, 1, VertexBuffers, Offsets);
+
     VkViewport Viewport{};
     Viewport.x = 0.0f;
     Viewport.y = 0.0f;
@@ -803,7 +864,7 @@ void RkVulkanRendererContext::Record(VkCommandBuffer CommandBuffer, uint32 Image
     Scissor.extent = SwapchainExtent;
     vkCmdSetScissor(CommandBuffer, 0, 1, &Scissor);
 
-    vkCmdDraw(CommandBuffer, 3, 1, 0, 0);
+    vkCmdDraw(CommandBuffer, static_cast<uint32>(Vertices.size()), 1, 0, 0);
 
     vkCmdEndRenderPass(CommandBuffer);
 

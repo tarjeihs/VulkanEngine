@@ -4,6 +4,9 @@
 #include <memory>
 #include <vulkan/vulkan_core.h>
 #include <optional>
+#include <glm/ext/vector_float2.hpp>
+#include <glm/ext/vector_float3.hpp>
+#include <array>
 
 #include "Renderer/RendererContext.h"
 #include "Math/MathTypes.h"
@@ -62,6 +65,39 @@ struct RkSwapChainSupportDetails
     std::vector<VkPresentModeKHR> PresentMode;
 };
 
+struct RkVertex
+{
+    glm::vec2 Position;
+    glm::vec3 Color;
+
+    static VkVertexInputBindingDescription DescribeBindingDescription()
+    {
+        VkVertexInputBindingDescription BindingDescription{};
+        BindingDescription.binding = 0;
+        BindingDescription.stride = sizeof(RkVertex);
+        BindingDescription.inputRate = VK_VERTEX_INPUT_RATE_VERTEX; // Move to the next data entry after each vertex
+
+        return BindingDescription;
+    }
+
+    static std::array<VkVertexInputAttributeDescription, 2> DescribeAttributeDescription()
+    {
+        std::array<VkVertexInputAttributeDescription, 2> AttributeDescriptions;
+
+        AttributeDescriptions[0].binding = 0;
+        AttributeDescriptions[0].location = 0;
+        AttributeDescriptions[0].format = VK_FORMAT_R32G32B32_SFLOAT;
+        AttributeDescriptions[0].offset = offsetof(RkVertex, Position);
+
+        AttributeDescriptions[1].binding = 0;
+        AttributeDescriptions[1].location = 1;
+        AttributeDescriptions[1].format = VK_FORMAT_R32G32B32_SFLOAT;
+        AttributeDescriptions[1].offset = offsetof(RkVertex, Color);
+
+        return AttributeDescriptions;
+    }
+};
+
 // With 2 frames in flight, the CPU and the GPU can be working on their own tasks at the same time. 
 // If the CPU finishes early, it will wait till the GPU finishes rendering before submitting more work. 
 // With 3 or more frames in flight, the CPU could get ahead of the GPU, adding frames of latency
@@ -93,9 +129,6 @@ public:
     // Recreates the entire swapchain (swapchains, framebuffers, image views)
     void RegenerateSwapchain();
 
-    // Loops until window regains focus
-    void AwaitFocus();
-
 protected:
     void CreateInstance();
     void CreateSurfaceInterface();
@@ -105,9 +138,8 @@ protected:
     void CreateRenderPass();
     void CreateRenderPipeline();
     void CreateFramebuffers();
-    void CreateCommandPoolAndBuffer();
+    void CreateBuffers();
     void CreateSynchronizationObjects();
-
 
     void SetupDebugMessenger(VkInstance Instance);
     void DestroyDebugMessenger(VkInstance Instance);
@@ -128,6 +160,8 @@ protected:
     RkQueueFamilyIndices RequestQueueFamilies(VkPhysicalDevice PhysicalDevice);
     bool IsVulkanCapableDevice(VkPhysicalDevice PhysicalDevice);
 
+    uint32 FindMemoryType(uint32 TypeFilter, VkMemoryPropertyFlags Properties);
+
 private:
     VkPhysicalDevice PhysicalDevice;                                                // GPU
     VkDevice LogicalDevice;                                                         // Driver
@@ -136,6 +170,9 @@ private:
     VkQueue PresentQueue;
     VkSurfaceKHR SurfaceInterface;
     VkDebugUtilsMessengerEXT DebugMessenger;
+    
+    VkBuffer VertexBuffer;
+    VkDeviceMemory VertexBufferMemory;
 
     VkRenderPass RenderPass;                                                        // Describes what attachments, subpasses and dependencies to use on the framebuffer.
 

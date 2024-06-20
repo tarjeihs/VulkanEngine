@@ -3,6 +3,7 @@
 #include <vulkan/vulkan.h>
 #include <stdexcept>
 #include <unordered_map>
+#include <glm/ext/vector_float3.hpp>
 
 #include "Math/MathTypes.h"
 
@@ -17,7 +18,7 @@ struct SShaderProgram
 {
 	VkPipelineShaderStageCreateInfo CreateInfo;
 
-	// Compiled SPIR-V bytecode
+	// Compiled SPIR-V bytecode. Note: Should be freed right after compilation as Vulkan creates an internal copy.
 	VkShaderModule ShaderModule;
 };
 
